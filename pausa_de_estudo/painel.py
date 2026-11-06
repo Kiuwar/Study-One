@@ -248,10 +248,12 @@ class Painel:
                                      font=self._f(tema.FONTE_MONO, 14, "bold"))
         esq, dir_ = cx - 160 * k, cx + 160 * k
         suspenso = self.ctrl.suspenso
+        texto_suspensao = ("Iniciar contagem" if suspenso and self.ctrl.nunca_iniciado else
+                           "Retomar contagem" if suspenso else "Suspender contagem")
         self._botao(esq, 520, "Pausar agora", lambda: self._fechar("agora"), d, True)
         self._botao(dir_, 520, "Reiniciar contagem", self._ir(self._reiniciar), tema.VIOLETA)
-        self._botao(esq, 590, "Retomar contagem" if suspenso else "Suspender contagem",
-                    self._ir(self._alternar_suspensao), tema.VIOLETA)
+        self._botao(esq, 590, texto_suspensao, self._ir(self._alternar_suspensao), tema.VIOLETA,
+                    preenchido=self.ctrl.nunca_iniciado)
         self._botao(dir_, 590, "Resumo", lambda: self._fechar("resumo"), d)
         self._botao(esq, 660, "Configurações", self._ir(self._config), d)
         self._botao_atualizacao(dir_, 660)
