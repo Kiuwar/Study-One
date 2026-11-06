@@ -13,6 +13,9 @@ PADRAO = {
     "som": True,
     "iniciar_com_windows": False,
     "cor_destaque": "ciano",          # ciano, violeta, verde ou magenta
+    "verificar_atualizacoes": True,   # consulta o GitHub ao iniciar e a cada 24 h
+    "ciclos_pausa_longa": 0,          # a cada N ciclos a pausa é longa (0 = desligado)
+    "minutos_pausa_longa": 20,
 }
 MODOS = ("tela_cheia", "notificacao")
 CORES = ("ciano", "violeta", "verde", "magenta")
@@ -34,8 +37,10 @@ def validar(dados: dict) -> dict:
         if chave not in dados:
             continue
         valor = dados[chave]
-        if chave in ("minutos_estudo", "minutos_pausa", "adiar_minutos"):
+        if chave in ("minutos_estudo", "minutos_pausa", "adiar_minutos", "minutos_pausa_longa"):
             ok = _numero_valido(valor)
+        elif chave == "ciclos_pausa_longa":
+            ok = isinstance(valor, int) and not isinstance(valor, bool) and 0 <= valor <= 24
         elif chave == "modo_aviso":
             ok = valor in MODOS
         elif chave == "cor_destaque":

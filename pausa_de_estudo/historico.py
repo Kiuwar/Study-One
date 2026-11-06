@@ -75,3 +75,19 @@ def somar(dias: list) -> dict:
         for chave in total:
             total[chave] += d[chave]
     return total
+
+
+def sequencia_dias(hoje: date = None, caminho: str = None) -> int:
+    """Dias seguidos (até hoje, ou até ontem se hoje ainda não teve pausa) com ao menos 1 pausa feita."""
+    hoje = hoje or date.today()
+    with closing(_conectar(caminho)) as conn:
+        linhas = conn.execute(
+            "SELECT DISTINCT substr(data_hora, 1, 10) FROM avisos WHERE acao = 'feita' "
+            "ORDER BY 1 DESC LIMIT 400").fetchall()
+    dias = {date.fromisoformat(r[0]) for r in linhas}
+    dia = hoje if hoje in dias else hoje - timedelta(days=1)
+    n = 0
+    while dia in dias:
+        n += 1
+        dia -= timedelta(days=1)
+    return n

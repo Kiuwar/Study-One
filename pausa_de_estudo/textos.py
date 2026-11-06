@@ -8,5 +8,6 @@ SUGESTOES = (
 )
 
 TITULO_PAUSA = "Hora da pausa"
+TITULO_PAUSA_LONGA = "Hora da pausa longa"
 TITULO_VOLTAR = "Pausa concluída"
 MSG_VOLTAR = "Hora de voltar a estudar. Bons estudos!"
