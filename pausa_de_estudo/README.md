@@ -94,7 +94,23 @@ início do próximo ciclo o app cria o atalho `Pausa de Estudo.lnk` em
 3. Local do item: `"C:\caminho\do\python\pythonw.exe" "C:\caminho\pausa_de_estudo\main.py"`.
 4. Nomeie e conclua. Em Propriedades, "Iniciar em" deve ser a pasta do app.
 
-## Gerar um .exe (opcional)
+## Instalar no Windows (sem Python)
+
+O GitHub Actions compila o `.exe` num Windows real (workflow `.github/workflows/windows.yml`).
+Em **Actions > Windows (.exe e instalador) > Artifacts** baixe `PausaDeEstudo-Windows`:
+
+- `PausaDeEstudo-Setup.exe`: instalador. Instala só para o seu usuário, sem pedir
+  administrador, em `%LOCALAPPDATA%\Programs\PausaDeEstudo`, e cria os atalhos no Menu
+  Iniciar (app, resumo das pausas e encerrar). Para desinstalar, use "Aplicativos
+  instalados" do Windows.
+- `PausaDeEstudo-portatil.zip`: descompacte numa pasta com permissão de escrita e abra
+  `PausaDeEstudo.exe`.
+
+Para publicar uma *release* com os dois arquivos, crie uma tag: `git tag v1.0.0 && git push origin v1.0.0`.
+O Windows pode exibir o aviso "SmartScreen" porque o `.exe` não é assinado digitalmente:
+clique em "Mais informações" > "Executar assim mesmo".
+
+## Gerar o .exe manualmente (opcional)
 
 ```bat
 pip install pyinstaller
@@ -103,8 +119,8 @@ pyinstaller --noconsole --onedir --name PausaDeEstudo main.py
 
 A pasta `dist\PausaDeEstudo\` contém o `PausaDeEstudo.exe`. O `config.json` e o
 `historico.db` ficam **ao lado do .exe**. Prefira `--onedir`: o `--onefile` extrai tudo
-para uma pasta temporária a cada abertura, o que é mais lento. Antivírus às vezes acusam
-falso positivo em executáveis do PyInstaller.
+para uma pasta temporária a cada abertura, o que é mais lento. Para gerar o instalador,
+instale o Inno Setup 6 e rode `iscc instalador.iss` na pasta do app.
 
 ## Como medir a memória (meta: < 40 MB)
 
