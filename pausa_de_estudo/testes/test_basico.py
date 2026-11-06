@@ -103,6 +103,14 @@ class TesteInstancia(unittest.TestCase):
         self.assertTrue(fila.empty())
         srv.close()
 
+    def test_sondar_nao_bloqueia_e_repassa_sair(self):
+        f = queue.Queue()
+        c = main.Ciclo(f)
+        self.assertIsNone(c.sondar())
+        f.put("sair")
+        self.assertTrue(c.sondar_para_fechar())
+        self.assertEqual(f.get_nowait(), "sair")       # devolvido ao laço principal
+
     def test_estado_info_para_o_painel(self):
         c = main.Ciclo(queue.Queue())
         c.esperar(0.05, "pausa")

@@ -125,13 +125,28 @@ class Ciclo:
                    "adiada": "PAUSA ADIADA · AVISO EM"}
         return rotulos[self.estado], max(0.0, self.limite - time.monotonic()), self.duracao
 
+    def sondar(self):
+        """Próximo comando pendente, sem bloquear (usado pelas janelas abertas)."""
+        try:
+            return self.fila.get_nowait()
+        except queue.Empty:
+            return None
+
+    def sondar_para_fechar(self) -> bool:
+        """Para a janela de resumo: fecha se chegou --sair/--agora (e repassa ao laço)."""
+        cmd = self.sondar()
+        if cmd in ("sair", "agora"):
+            self.fila.put(cmd)
+            return True
+        return False
+
     def aplicar_config(self, novo: dict):
         inicializacao.sincronizar(novo["iniciar_com_windows"])
 
     def abrir_painel(self):
         try:
             import painel
-            return painel.abrir(self.estado_info, self.cfg, self.aplicar_config)
+            return painel.abrir(self.estado_info, self.cfg, self.aplicar_config, self.sondar)
         except Exception:
             logging.exception("Falha ao abrir o painel")
             return None
@@ -139,7 +154,7 @@ class Ciclo:
     def abrir_estatisticas(self):
         try:
             import estatisticas
-            estatisticas.abrir(self.cfg["cor_destaque"])
+            estatisticas.abrir(self.cfg["cor_destaque"], self.sondar_para_fechar)
         except Exception:
             logging.exception("Falha ao abrir as estatísticas")
 

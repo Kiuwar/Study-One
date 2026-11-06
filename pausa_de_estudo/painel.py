@@ -16,9 +16,9 @@ import tema
 LARG, ALT = 760, 800
 
 
-def abrir(estado_fn, cfg, ao_salvar=None):
+def abrir(estado_fn, cfg, ao_salvar=None, sondar=None):
     """Retorna "agora", "resumo", "sair", "tempo" (a pausa venceu) ou None (fechou)."""
-    painel = Painel(estado_fn, cfg, ao_salvar)
+    painel = Painel(estado_fn, cfg, ao_salvar, sondar)
     try:
         return painel.executar()
     finally:
@@ -109,8 +109,8 @@ class _Interruptor:
 
 
 class Painel:
-    def __init__(self, estado_fn, cfg, ao_salvar):
-        self.estado_fn, self.cfg, self.ao_salvar = estado_fn, dict(cfg), ao_salvar
+    def __init__(self, estado_fn, cfg, ao_salvar, sondar=None):
+        self.estado_fn, self.cfg, self.ao_salvar, self.sondar = estado_fn, dict(cfg), ao_salvar, sondar
         self.destaque = tema.cor_destaque(cfg.get("cor_destaque"))
         self.root = None
         self._resultado = None
@@ -164,6 +164,18 @@ class Painel:
         self.root.quit()
 
     def _tick(self):
+        # Comandos externos (--sair, --agora...) chegam enquanto a janela está aberta.
+        cmd = self.sondar() if self.sondar else None
+        if cmd in ("sair", "agora"):
+            self._fechar(cmd)
+            return
+        if cmd == "estatisticas":
+            self._fechar("resumo")
+            return
+        if cmd == "painel":
+            self.root.deiconify()
+            self.root.lift()
+            self.root.focus_force()
         rotulo, restante, total = self.estado_fn()
         if restante <= 0:                       # a pausa venceu com o painel aberto
             self._fechar("tempo")

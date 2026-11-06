@@ -13,8 +13,9 @@ import tema
 DIAS_SEMANA = ("seg", "ter", "qua", "qui", "sex", "sáb", "dom")
 
 
-def abrir(cor: str = "ciano") -> None:
-    tela = JanelaEstatisticas(tema.cor_destaque(cor))
+def abrir(cor: str = "ciano", sondar=None) -> None:
+    """`sondar()` devolve True quando um comando externo pede para fechar a janela."""
+    tela = JanelaEstatisticas(tema.cor_destaque(cor), sondar)
     try:
         tela.executar()
     finally:
@@ -22,13 +23,17 @@ def abrir(cor: str = "ciano") -> None:
 
 
 class JanelaEstatisticas:
-    def __init__(self, destaque):
+    def __init__(self, destaque, sondar=None):
         self.destaque = destaque
+        self.sondar = sondar
         self.root = None
+        self._job = None
 
     def destruir(self):
         if self.root is not None:
             try:
+                if self._job:
+                    self.root.after_cancel(self._job)
                 self.root.destroy()
             except tk.TclError:
                 pass
@@ -61,7 +66,15 @@ class JanelaEstatisticas:
         root.bind("<Escape>", lambda _e: root.quit())
         root.deiconify()
         root.focus_force()
+        if self.sondar:
+            self._vigiar()
         root.mainloop()
+
+    def _vigiar(self):
+        if self.sondar():
+            self.root.quit()
+            return
+        self._job = self.root.after(1000, self._vigiar)
 
     # ---------------------------------------------------------- desenho
     def _desenhar(self, w, h, dias, erro):
