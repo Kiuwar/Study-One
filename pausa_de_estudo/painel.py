@@ -14,7 +14,7 @@ import sistema
 import tema
 from versao import VERSAO
 
-LARG, ALT = 760, 860
+LARG, ALT = 760, 920
 
 
 def abrir(ctrl, cfg):
@@ -125,6 +125,7 @@ class Painel:
 
     # --------------------------------------------------------------- ciclo
     def executar(self):
+        sistema.proteger_tk()
         self.root = root = tk.Tk()
         root.withdraw()
         k = self.k = tema.escala(root.winfo_screenheight(), 0.7, 1.4)
@@ -219,6 +220,10 @@ class Painel:
         c.create_text(w // 2, 104 * k, text=subtitulo, fill=tema.TEXTO_SUAVE,
                       font=self._f(tema.FONTE_TEXTO, 16))
 
+    def _ir(self, funcao):
+        """Executa depois do clique terminar (redesenhar a tela dentro do próprio clique é frágil)."""
+        return lambda: self.root.after_idle(funcao)
+
     def _botao(self, cx, y, texto, comando, cor, preenchido=False, largura=290):
         k = self.k
         self._botoes.append(tema.BotaoNeon(
@@ -244,17 +249,18 @@ class Painel:
         esq, dir_ = cx - 160 * k, cx + 160 * k
         suspenso = self.ctrl.suspenso
         self._botao(esq, 520, "Pausar agora", lambda: self._fechar("agora"), d, True)
-        self._botao(dir_, 520, "Retomar contagem" if suspenso else "Suspender contagem",
-                    self._alternar_suspensao, tema.VIOLETA)
-        self._botao(esq, 590, "Resumo", lambda: self._fechar("resumo"), d)
-        self._botao(dir_, 590, "Configurações", self._config, d)
-        self._botao_atualizacao(esq, 660)
-        self._botao(dir_, 660, "Encerrar app", lambda: self._fechar("sair"), tema.ROSA)
+        self._botao(dir_, 520, "Reiniciar contagem", self._ir(self._reiniciar), tema.VIOLETA)
+        self._botao(esq, 590, "Retomar contagem" if suspenso else "Suspender contagem",
+                    self._ir(self._alternar_suspensao), tema.VIOLETA)
+        self._botao(dir_, 590, "Resumo", lambda: self._fechar("resumo"), d)
+        self._botao(esq, 660, "Configurações", self._ir(self._config), d)
+        self._botao_atualizacao(dir_, 660)
+        self._botao(cx, 730, "Encerrar app", lambda: self._fechar("sair"), tema.ROSA, largura=290)
         e = self.ctrl.atualizador.estado()
-        c.create_text(cx, 725 * k, text=e["msg"], justify="center",
+        c.create_text(cx, 793 * k, text=e["msg"], justify="center",
                       fill=tema.ROSA if e["fase"] == "erro" else self.destaque,
                       font=self._f(tema.FONTE_TEXTO, 14), width=int(640 * k))
-        c.create_text(cx, 790 * k, justify="center", fill=tema.TEXTO_SUAVE,
+        c.create_text(cx, 855 * k, justify="center", fill=tema.TEXTO_SUAVE,
                       text="v%s  ·  Fechar esta janela não encerra o app:\nele continua em segundo plano." % VERSAO,
                       font=self._f(tema.FONTE_TEXTO, 13))
         self._atualizar_home(*self.ctrl.estado_info())
@@ -275,6 +281,10 @@ class Painel:
 
     def _alternar_suspensao(self):
         self.ctrl.alternar_suspensao()
+        self._home()
+
+    def _reiniciar(self):
+        self.ctrl.reiniciar_contagem()
         self._home()
 
     def _atualizar_home(self, rotulo, restante, total):
@@ -327,7 +337,7 @@ class Painel:
         self._msg = c.create_text(cx, 745 * k, text="", fill=tema.ROSA,
                                   font=self._f(tema.FONTE_TEXTO, 15))
         self._botao(cx - 160 * k, 800, "Salvar", self._salvar, d, True)
-        self._botao(cx + 160 * k, 800, "Voltar", self._home, tema.VIOLETA)
+        self._botao(cx + 160 * k, 800, "Voltar", self._ir(self._home), tema.VIOLETA)
 
     def _salvar(self):
         novo = dict(self._atual)        # preserva chaves sem campo na tela (ex.: pausa longa)

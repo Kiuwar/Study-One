@@ -52,13 +52,45 @@ jobs:
           if (-not $p) { throw "O app nao ficou rodando"; }
           "Janela do painel: '" + ($p | Select-Object -First 1).MainWindowTitle + "'"
           if (-not (Test-Path "dist\PausaDeEstudo\config.json")) { throw "config.json nao foi criado" }
-          if (Test-Path "dist\PausaDeEstudo\erros.log") { Get-Content "dist\PausaDeEstudo\erros.log"; throw "erros.log foi criado" }
+          $log = "dist\PausaDeEstudo\erros.log"
+          if ((Test-Path $log) -and ((Get-Item $log).Length -gt 0)) { Get-Content $log; throw "erros.log registrou erros" }
           Start-Process $exe -Wait                   # 2ª abertura: so repassa o comando e sai
           if (@(Get-Process PausaDeEstudo).Count -ne 1) { throw "Abriu uma segunda instancia" }
           & $exe --sair
           Start-Sleep -Seconds 4
           if (Get-Process PausaDeEstudo -ErrorAction SilentlyContinue) { throw "--sair nao encerrou o app" }
           Remove-Item "dist\PausaDeEstudo\config.json" -Force -ErrorAction SilentlyContinue
+
+      - name: Teste da tela de pausa no .exe (abre a tela cheia, fecha com --sair)
+        shell: pwsh
+        run: |
+          $exe = "dist\PausaDeEstudo\PausaDeEstudo.exe"
+          $pasta = "dist\PausaDeEstudo"
+          Remove-Item "$pasta\historico.db", "$pasta\erros.log" -Force -ErrorAction SilentlyContinue
+          Start-Process $exe -ArgumentList "--agora"     # dispara a pausa em tela cheia agora
+          Start-Sleep -Seconds 7
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $bmp.Save("$pasta\captura-tela-cheia.png")
+          if (-not (Get-Process PausaDeEstudo -ErrorAction SilentlyContinue)) { throw "O app fechou ao abrir a tela de pausa" }
+          & $exe --sair
+          Start-Sleep -Seconds 5
+          if (Get-Process PausaDeEstudo -ErrorAction SilentlyContinue) { throw "--sair nao fechou a tela de pausa" }
+          if (Test-Path "$pasta\erros.log") {
+            "--- erros.log ---"; Get-Content "$pasta\erros.log"
+            if ((Get-Item "$pasta\erros.log").Length -gt 0) { throw "A tela de pausa registrou erros no Windows" }
+          }
+          python -c "import sqlite3,sys; r=sqlite3.connect(r'dist\PausaDeEstudo\historico.db').execute('select acao from avisos').fetchall(); print(r); sys.exit(0 if r==[('pulada',)] else 1)"
+          Remove-Item "$pasta\historico.db", "$pasta\erros.log", "$pasta\config.json" -Force -ErrorAction SilentlyContinue
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: captura-windows
+          path: pausa_de_estudo/dist/PausaDeEstudo/captura-tela-cheia.png
+          if-no-files-found: ignore
 
       - name: Gerar o instalador (Inno Setup)
         shell: pwsh

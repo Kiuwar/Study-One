@@ -91,3 +91,16 @@ def sequencia_dias(hoje: date = None, caminho: str = None) -> int:
         n += 1
         dia -= timedelta(days=1)
     return n
+
+
+def exportar_csv(destino: str, caminho: str = None) -> int:
+    """Grava todo o histórico em CSV (separador ';' e UTF-8 com BOM: abre certo no Excel pt-BR)."""
+    import csv
+    with closing(_conectar(caminho)) as conn:
+        linhas = conn.execute("SELECT data_hora, duracao_planejada_s, duracao_real_s, acao "
+                              "FROM avisos ORDER BY id").fetchall()
+    with open(destino, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f, delimiter=";")
+        w.writerow(["data_hora", "duracao_planejada_s", "duracao_real_s", "acao"])
+        w.writerows(linhas)
+    return len(linhas)
