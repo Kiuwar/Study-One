@@ -8,6 +8,7 @@
 - O painel redesenha depois do clique terminar (mais robusto ao suspender, retomar e reiniciar).
 - **Exportar CSV** do histórico, no resumo (abre direto no Excel).
 - **Diagnóstico:** falhas fatais e erros de janela agora ficam registrados em `erros.log`.
+- **Atualização:** aceita o novo nome do repositório (`Kiuwar/Study-One`); sem isso o download seria recusado.
 - O CI abre a tela de pausa no Windows e falha se houver erro, para pegar problemas que só
   aparecem lá.
 

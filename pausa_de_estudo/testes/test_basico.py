@@ -273,11 +273,11 @@ class TesteAtualizador(unittest.TestCase):
         self.srv = http.server.HTTPServer(("127.0.0.1", 0), H)
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
         self.api = "http://127.0.0.1:%d/api" % self.srv.server_port
-        self._prefixo = atualizador.PREFIXO_DOWNLOAD
-        atualizador.PREFIXO_DOWNLOAD = "http://127.0.0.1:%d/dl/" % self.srv.server_port
+        self._prefixos = atualizador.PREFIXOS_DOWNLOAD
+        atualizador.PREFIXOS_DOWNLOAD = ("http://127.0.0.1:%d/dl/" % self.srv.server_port,)
 
     def tearDown(self):
-        atualizador.PREFIXO_DOWNLOAD = self._prefixo
+        atualizador.PREFIXOS_DOWNLOAD = self._prefixos
         self.srv.shutdown()
         self.srv.server_close()
 
@@ -307,6 +307,12 @@ class TesteAtualizador(unittest.TestCase):
             atualizador.baixar(dict(info, url="http://evil.example/Setup.exe"))
         with self.assertRaises(atualizador.ErroAtualizacao):
             atualizador.baixar(dict(info, sha256=None, url_sha=None))
+
+    def test_aceita_o_nome_novo_e_o_antigo_do_repositorio(self):
+        for repo, ok in (("Kiuwar/Study-One", True), ("Kiuwar/New", True), ("Outro/New", False),
+                         ("Kiuwar/Study-One.evil", False)):
+            url = "https://github.com/%s/releases/download/v1/PausaDeEstudo-Setup.exe" % repo
+            self.assertEqual(url.startswith(self._prefixos), ok, repo)
 
     def test_sem_servidor_vira_erro_amigavel(self):
         self.srv.shutdown()

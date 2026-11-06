@@ -124,7 +124,7 @@ app baixa o instalador da release do GitHub, **confere o SHA-256** (recusa se n�
 checksum faltar), roda o instalador em modo silencioso e volta a abrir sozinho. O app também
 verifica ao iniciar e a cada 24 h e avisa com uma notificação (desligue em Configurações).
 
-- Só baixa de `github.com/Kiuwar/New/releases/download/`.
+- Só baixa de `github.com/Kiuwar/Study-One/releases/download/` (e o nome antigo `Kiuwar/New`).
 - **Requer que o repositório seja público**: com repositório privado o GitHub responde 404 para
   quem não está logado e o painel mostra "Nenhuma versão pública encontrada".
 - Na versão portátil (zip) o botão apenas abre a página de download.
