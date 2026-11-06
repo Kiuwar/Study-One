@@ -89,3 +89,36 @@ def listar_monitores():
     # O monitor principal sempre está na origem (0, 0).
     monitores.sort(key=lambda m: (m[0], m[1]) != (0, 0))
     return monitores
+
+
+_mutex = None   # mantém o mutex vivo enquanto o processo existir
+
+
+def obter_mutex(nome: str = "Local\\PausaDeEstudo.Instancia") -> bool:
+    """True se esta é a primeira instância (mutex nomeado do Windows, atômico).
+
+    Fora do Windows sempre devolve True (a checagem é feita pela porta local).
+    """
+    global _mutex
+    if not e_windows():
+        return True
+    import ctypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateMutexW.restype = ctypes.c_void_p
+    k32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p]
+    _mutex = k32.CreateMutexW(None, False, nome)
+    return ctypes.get_last_error() != 183      # 183 = ERROR_ALREADY_EXISTS
+
+
+def barra_escura(janela) -> None:
+    """Barra de título escura (Windows 10 1903+ e 11). Melhor esforço."""
+    if not e_windows():
+        return
+    import ctypes
+    try:
+        hwnd = ctypes.windll.user32.GetParent(janela.winfo_id())
+        for atributo in (20, 19):
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, atributo, ctypes.byref(ctypes.c_int(1)), 4)
+    except (AttributeError, OSError):
+        pass

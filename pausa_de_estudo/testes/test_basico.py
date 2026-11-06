@@ -90,5 +90,26 @@ class TesteCiclo(unittest.TestCase):
         self.assertEqual([g[2] for g in gravados], ["adiada", "feita"])
 
 
+class TesteInstancia(unittest.TestCase):
+    def test_comando_chega_na_instancia_em_execucao(self):
+        import threading
+        main.arquivo_porta = lambda: os.path.join(tempfile.gettempdir(), "teste_pausa.porta")
+        self.assertFalse(main.enviar_comando("painel"))            # nada rodando
+        srv, fila = main.abrir_servidor(), queue.Queue()
+        threading.Thread(target=main.escutar, args=(srv, fila), daemon=True).start()
+        self.assertTrue(main.enviar_comando("painel"))
+        self.assertEqual(fila.get(timeout=2), "painel")
+        self.assertTrue(main.enviar_comando("ping"))               # ping não gera comando
+        self.assertTrue(fila.empty())
+        srv.close()
+
+    def test_estado_info_para_o_painel(self):
+        c = main.Ciclo(queue.Queue())
+        c.esperar(0.05, "pausa")
+        rotulo, restante, total = c.estado_info()
+        self.assertIn("EM PAUSA", rotulo)
+        self.assertEqual(restante, 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

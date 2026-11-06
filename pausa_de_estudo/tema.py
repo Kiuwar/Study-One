@@ -76,6 +76,24 @@ def colchetes(canvas, x1, y1, x2, y2, tam, cor, largura=2):
         canvas.create_line(x, y + dy * tam, x, y, x + dx * tam, y, fill=cor, width=largura)
 
 
+def icone(janela, cor: str) -> None:
+    """Ícone da janela (anel de cronômetro neon), desenhado em código."""
+    import math
+    import tkinter as tk
+    n = 64
+    img = tk.PhotoImage(width=n, height=n)
+    for y in range(n):
+        linha = []
+        for x in range(n):
+            u, v = (x + .5) / n * 2 - 1, (y + .5) / n * 2 - 1
+            a = max(0.0, min(1.0, (0.12 - abs(math.hypot(u, v) - 0.55)) / 0.04))
+            ang = math.degrees(math.atan2(u, -v)) % 360
+            linha.append(misturar(FUNDO, LINHA if 0 < ang < 70 else cor, a))
+        img.put("{" + " ".join(linha) + "}", to=(0, y))
+    janela.iconphoto(True, img)
+    janela._icone = img          # evita coleta pelo GC
+
+
 def formatar_tempo(segundos: int) -> str:
     segundos = max(0, int(segundos))
     return "%02d:%02d" % divmod(segundos, 60)

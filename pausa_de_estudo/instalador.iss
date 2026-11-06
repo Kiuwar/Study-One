@@ -18,6 +18,7 @@ OutputBaseFilename=PausaDeEstudo-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=icone.ico
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\PausaDeEstudo.exe
 
@@ -37,7 +38,7 @@ Name: "{group}\Encerrar Pausa de Estudo"; Filename: "{app}\PausaDeEstudo.exe"; P
 Name: "{userdesktop}\Pausa de Estudo"; Filename: "{app}\PausaDeEstudo.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\PausaDeEstudo.exe"; Description: "Iniciar o Pausa de Estudo agora"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\PausaDeEstudo.exe"; Description: "Abrir o Pausa de Estudo agora"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 Filename: "{app}\PausaDeEstudo.exe"; Parameters: "--sair"; Flags: runhidden; RunOnceId: "EncerrarApp"

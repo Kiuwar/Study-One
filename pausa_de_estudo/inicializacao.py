@@ -20,10 +20,10 @@ def existe() -> bool:
 
 def _alvo_e_argumentos():
     if getattr(sys, "frozen", False):          # .exe do PyInstaller
-        return sys.executable, ""
+        return sys.executable, "--silencioso"
     pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
     exe = pythonw if os.path.exists(pythonw) else sys.executable   # pythonw = sem console
-    return exe, '"%s"' % os.path.join(sistema.pasta_app(), "main.py")
+    return exe, '"%s" --silencioso' % os.path.join(sistema.pasta_app(), "main.py")
 
 
 def criar() -> bool:
