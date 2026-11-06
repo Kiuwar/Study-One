@@ -133,9 +133,11 @@ verifica ao iniciar e a cada 24 h e avisa com uma notificação (desligue em Con
 
 ### Para publicar uma versão nova
 1. Aumente `VERSAO` em `versao.py` e descreva a mudança em `CHANGELOG.md` (seção `## X.Y.Z`).
-2. Faça merge na `main` e crie a tag igual: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-3. O workflow compila, testa e publica a release com `PausaDeEstudo-Setup.exe`, o `.sha256` e o
-   `.zip` (o CI recusa se a tag e `versao.py` divergirem).
+2. Faça merge na `main`. O workflow compila, testa e publica a release `vX.Y.Z` (cria a tag
+   sozinho) com `PausaDeEstudo-Setup.exe`, o `.sha256` e o `.zip`. Crie a tag à mão só se
+   preferir (o CI recusa se a tag e `versao.py` divergirem).
+3. **Aumente `versao.py` a cada lançamento:** um novo push na `main` com a mesma versão
+   reenvia os arquivos da release existente.
 
 ## Gerar o .exe manualmente (opcional)
 
