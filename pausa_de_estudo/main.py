@@ -87,6 +87,8 @@ class Ciclo:
         self.estado, self.limite, self.duracao = "estudo", time.monotonic(), 1.0
         self.suspenso, self.restante_suspenso = False, 0.0
         self.contador, self.longa = 0, False
+        self.iniciar_suspenso = True       # a 1ª contagem de estudo espera o usuário iniciar
+        self.nunca_iniciado = True
         self.reabrir_painel = False        # painel estava aberto quando a pausa começou
         self._pendentes = set()            # comandos recebidos com a tela cheia aberta
         self.atualizador = atualizador.Gerenciador(self._avisar_atualizacao)
@@ -98,7 +100,9 @@ class Ciclo:
             inicializacao.sincronizar(self.cfg["iniciar_com_windows"])
             if self.cfg["verificar_atualizacoes"]:
                 self.atualizador.verificar_se_preciso()
-            motivo = self.esperar(self.cfg["minutos_estudo"] * 60)
+            motivo = self.esperar(self.cfg["minutos_estudo"] * 60,
+                                  suspenso_inicial=self.iniciar_suspenso)
+            self.iniciar_suspenso = False
             if motivo == "sair":
                 return
             self.contador += 1
@@ -106,11 +110,12 @@ class Ciclo:
             if self.pausa(longa=bool(n) and self.contador % n == 0) == "sair":
                 return
 
-    def esperar(self, segundos: float, estado: str = "estudo") -> str:
+    def esperar(self, segundos: float, estado: str = "estudo", suspenso_inicial: bool = False) -> str:
         """Dorme até o fim do tempo. Retorna "tempo", "agora" ou "sair"."""
         self.estado, self.duracao = estado, max(1.0, segundos)
         self.limite = time.monotonic() + segundos
-        self.suspenso = False
+        self.suspenso = suspenso_inicial
+        self.restante_suspenso = self.duracao if suspenso_inicial else 0.0
         while True:
             if self.suspenso:              # contagem suspensa: só acorda com um comando
                 cmd = self.fila.get()
@@ -142,7 +147,8 @@ class Ciclo:
     def estado_info(self):
         """(rótulo, segundos restantes, duração total) para o painel."""
         if self.suspenso:
-            return "CONTAGEM SUSPENSA", self.restante_suspenso, self.duracao
+            rotulo = "AGUARDANDO INÍCIO · CLIQUE EM INICIAR" if self.nunca_iniciado else "CONTAGEM SUSPENSA"
+            return rotulo, self.restante_suspenso, self.duracao
         rotulos = {"estudo": "ESTUDANDO · PRÓXIMA PAUSA EM",
                    "pausa": "EM PAUSA · VOLTA AO ESTUDO EM",
                    "adiada": "PAUSA ADIADA · AVISO EM"}
@@ -152,6 +158,7 @@ class Ciclo:
         agora = time.monotonic()
         if self.suspenso:
             self.limite, self.suspenso = agora + self.restante_suspenso, False
+            self.nunca_iniciado = False
         else:
             self.restante_suspenso, self.suspenso = max(0.0, self.limite - agora), True
         return self.suspenso
