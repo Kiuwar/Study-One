@@ -1,0 +1,2 @@
+# Nenhuma dependência de execução: o app usa apenas a biblioteca padrão do Python.
+# (Opcional, só para gerar .exe:  pip install pyinstaller)
