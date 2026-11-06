@@ -15,6 +15,11 @@ def e_windows() -> bool:
     return sys.platform == "win32"
 
 
+def pasta_temp() -> str:
+    """Pasta temporária do usuário (sem importar tempfile, que custa RAM no app em segundo plano)."""
+    return os.environ.get("TEMP") or os.environ.get("TMP") or "/tmp"
+
+
 def pasta_app() -> str:
     """Pasta onde ficam config.json e historico.db (ao lado do app/.exe)."""
     if getattr(sys, "frozen", False):
@@ -133,22 +138,106 @@ def instalar_diagnostico(caminho_log: str) -> None:
     Sem console (pythonw/.exe) esses erros sumiriam sem deixar rastro.
     """
     import faulthandler
-    import logging
     import threading
+
+    import registro
     global _log_falha
     try:
         _log_falha = open(caminho_log, "a", encoding="utf-8")
         faulthandler.enable(file=_log_falha, all_threads=True)
     except OSError:
         pass
-    sys.excepthook = lambda t, v, tb: logging.critical("Erro não tratado", exc_info=(t, v, tb))
-    threading.excepthook = lambda a: logging.error(
+    sys.excepthook = lambda t, v, tb: registro.critico("Erro não tratado", exc_info=(t, v, tb))
+    threading.excepthook = lambda a: registro.erro(
         "Erro em thread", exc_info=(a.exc_type, a.exc_value, a.exc_traceback))
 
 
 def proteger_tk() -> None:
     """Erros dentro de callbacks do Tk vão para o erros.log (sem console eles se perdiam)."""
-    import logging
     import tkinter
-    tkinter.Tk.report_callback_exception = lambda self, exc, val, tb: logging.error(
+
+    import registro
+    tkinter.Tk.report_callback_exception = lambda self, exc, val, tb: registro.erro(
         "Erro em callback do Tk", exc_info=(exc, val, tb))
+
+
+def lancar_filho(argumentos: list):
+    """Dispara o próprio app como processo filho (janela ou tarefa), sem console."""
+    if getattr(sys, "frozen", False):
+        cmd = [sys.executable] + argumentos
+    else:
+        exe = sys.executable
+        if e_windows():
+            pythonw = os.path.join(os.path.dirname(exe), "pythonw.exe")
+            exe = pythonw if os.path.exists(pythonw) else exe
+        cmd = [exe, os.path.join(pasta_app(), "main.py")] + argumentos
+    return subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, close_fds=True,
+                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
+def ocupado_tela_cheia() -> bool:
+    """True se o Windows indica apresentação, jogo/vídeo em tela cheia ou app ocupando a tela."""
+    if not e_windows():
+        return False
+    import ctypes
+    try:
+        estado = ctypes.c_int(0)
+        if ctypes.windll.shell32.SHQueryUserNotificationState(ctypes.byref(estado)) != 0:
+            return False
+        return estado.value in (2, 3, 4)   # BUSY, D3D em tela cheia, modo apresentação
+    except (AttributeError, OSError):
+        return False
+
+
+def instalado() -> bool:
+    """True se o app veio do instalador (há desinstalador ao lado do .exe)."""
+    return os.path.exists(os.path.join(pasta_app(), "unins000.exe"))
+
+
+def executar_instalador(caminho: str) -> None:
+    subprocess.Popen([caminho, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"],
+                     close_fds=True, creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
+
+
+def abrir_endereco(url: str) -> None:
+    """Abre um endereço no navegador padrão (sem importar webbrowser no processo principal)."""
+    if e_windows():
+        os.startfile(url)
+    else:
+        import webbrowser
+        webbrowser.open(url)
+
+
+def permitir_foco() -> None:
+    """Libera a troca de foco para a janela que o app vai abrir em seguida (regra do Windows).
+
+    Chamado por quem acabou de receber um clique/duplo clique do usuário, antes de pedir ao app em
+    segundo plano para abrir uma janela. Vale até a próxima ação do usuário.
+    """
+    if not e_windows():
+        return
+    import ctypes
+    try:
+        ctypes.windll.user32.AllowSetForegroundWindow(0xFFFFFFFF)   # ASFW_ANY
+    except (AttributeError, OSError):
+        pass
+
+
+def trazer_para_frente(janela) -> None:
+    """Melhor esforço para a janela Tk receber foco e teclado (o Esc depende disso)."""
+    if not e_windows():
+        return
+    import ctypes
+    u = ctypes.windll.user32
+    try:
+        hwnd = u.GetAncestor(janela.winfo_id(), 2) or janela.winfo_id()      # GA_ROOT
+        u.ShowWindow(hwnd, 9)                                                # SW_RESTORE
+        u.SetForegroundWindow(hwnd)
+        if u.GetForegroundWindow() != hwnd:       # negado: o toque em ALT libera a troca de foco
+            u.keybd_event(0x12, 0, 0, 0)
+            u.keybd_event(0x12, 0, 2, 0)
+            u.SetForegroundWindow(hwnd)
+        u.BringWindowToTop(hwnd)
+    except (AttributeError, OSError):
+        pass

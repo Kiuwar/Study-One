@@ -48,7 +48,14 @@ O app **não tem ícone na bandeja**: o controle é pelo painel (abra o app de n
   "adiar_minutos": 5,
   "som": true,
   "iniciar_com_windows": false,
-  "cor_destaque": "ciano"
+  "cor_destaque": "ciano",
+  "verificar_atualizacoes": true,
+  "ciclos_pausa_longa": 0,
+  "minutos_pausa_longa": 20,
+  "nao_interromper_tela_cheia": true,
+  "meta_diaria_pausas": 0,
+  "materias": [],
+  "materia_atual": ""
 }
 ```
 
@@ -62,6 +69,9 @@ O app **não tem ícone na bandeja**: o controle é pelo painel (abra o app de n
 | `verificar_atualizacoes` | `true` consulta o GitHub ao iniciar e a cada 24 h (a única conexão de rede do app) |
 | `ciclos_pausa_longa` | a cada N ciclos de estudo a pausa é longa (`0` desliga; só neste arquivo) |
 | `minutos_pausa_longa` | duração da pausa longa, em minutos (padrão 20) |
+| `nao_interromper_tela_cheia` | `true` adia a pausa em tela cheia se houver apresentação, jogo ou vídeo em tela cheia (só Windows) |
+| `meta_diaria_pausas` | meta de pausas feitas por dia (`0` = sem meta); aparece no painel e no resumo |
+| `materias`, `materia_atual` | lista de matérias (até 12) e a ativa; o painel troca a ativa com um clique |
 
 O arquivo é relido **no início de cada ciclo**, então a mudança vale a partir do próximo
 ciclo, sem reiniciar. Valor inválido volta ao padrão só naquele campo. JSON quebrado mantém
@@ -151,18 +161,24 @@ A pasta `dist\PausaDeEstudo\` contém o `PausaDeEstudo.exe`. O `config.json` e o
 para uma pasta temporária a cada abertura, o que é mais lento. Para gerar o instalador,
 instale o Inno Setup 6 e rode `iscc instalador.iss` na pasta do app.
 
-## Como medir a memória (meta: < 40 MB)
+## Memória (meta: < 40 MB) e como medir
 
-1. Abra o app (`pythonw main.py`) e deixe uns minutos.
-2. `Ctrl + Shift + Esc` > aba **Detalhes**. Procure `pythonw.exe` (ou `PausaDeEstudo.exe`).
-3. Clique com o botão direito no cabeçalho das colunas > **Selecionar colunas** > marque
-   **Conjunto de trabalho particular** (ou "Memória (conjunto de trabalho privado ativo)").
-   Esse é o número a comparar com a meta.
-4. Meça em três momentos: **parado** (contando), **com a tela cheia aberta** e **depois de
-   fechar**. A tela só existe durante o aviso; ao fechar, o valor deve voltar para perto
-   do parado.
-5. No modo `notificacao` o `tkinter` nem é carregado. O toast usa um `powershell.exe`
-   separado e de curta duração, que não conta para o app.
+O app foi dividido em dois tipos de processo:
+
+- **App em segundo plano** (sempre ligado): só ciclo, fila e SQLite sob demanda. **Não carrega
+  tkinter, rede (`urllib`/`ssl`) nem `logging`.** Medido no Linux: ~15 MB em repouso (a v1.2.0 usava
+  ~25 MB e subia para ~38 MB depois de abrir o painel, sem nunca devolver).
+- **Janelas** (painel, tela de pausa, resumo) e **tarefas de rede** (checar/baixar atualização): cada uma
+  é um processo próprio (`PausaDeEstudo.exe --janela ...`) que **termina ao fechar** e devolve a memória.
+  Uma janela aberta usa ~10–15 MB a mais (medido no Linux), só enquanto existir.
+
+Como medir no Windows: `Ctrl + Shift + Esc` > aba **Detalhes** > procure `PausaDeEstudo.exe`
+(haverá 1 processo em repouso; 2 com o painel aberto). Clique com o botão direito no cabeçalho das
+colunas > **Selecionar colunas** > **Conjunto de trabalho particular**. O CI do projeto mede o
+conjunto de trabalho do app em segundo plano a cada build e **falha se passar de 40 MB** (veja o
+log da etapa "Memória do app em segundo plano").
+
+Custo: abrir uma janela leva ~0,3–0,8 s a mais (novo processo).
 
 ## Testes
 
@@ -170,17 +186,18 @@ instale o Inno Setup 6 e rode `iscc instalador.iss` na pasta do app.
 python -m unittest discover -s testes -v
 ```
 
-Cobrem config, histórico, espera/comandos e o reagendamento do "Adiar".
+Cobrem config, histórico (e migração), o laço do ciclo, o IPC com token, o atualizador, a meta, as
+matérias e o adiamento por tela cheia.
 
 ## Premissas e limitações (leia)
 
 - **Não foi testado em Windows real.** Foi desenvolvido e testado em Linux: lógica
-  (6 testes automáticos), ciclo de ponta a ponta no modo notificação, e a interface
+  (31 testes automáticos), ciclo de ponta a ponta no modo notificação, e a interface
   (tela cheia, Esc, Adiar, contagem completa, estatísticas) sob `tkinter` virtual.
   **Sem teste no Windows:** toast, criação do `.lnk`, detecção de vários monitores,
   `-transparentcolor` e a memória real. Valide esses pontos.
-- **Memória:** a meta de 40 MB **não foi medida no Windows**. Em Linux o app parado
-  (sem `tkinter`) usou ~17 MB. O `tkinter` e a tela cheia somam mais enquanto abertos.
+- **Memória:** medida no Linux (acima). No Windows quem mede é o CI (conjunto de trabalho do app
+  em segundo plano, com limite de 40 MB); o número real aparece no log de cada build.
 - **Sem ícone na bandeja** (exigiria `pystray` + `Pillow`). Sem janela flutuante
   permanente: ela deixaria o app na lista "Aplicativos" do Gerenciador de Tarefas e
   quebraria o critério de não sobrar janela. O visual flutuante (halo neon, translucidez,
@@ -198,24 +215,36 @@ Cobrem config, histórico, espera/comandos e o reagendamento do "Adiar".
   (registrada em `%TEMP%\PausaDeEstudo.porta`), sem porta fixa que possa estar bloqueada.
 - Se o app não conseguir iniciar, ele mostra uma mensagem de erro e grava o motivo em `erros.log`.
   O mesmo arquivo recebe falhas fatais e erros de janela; se o app fechar sozinho, abra-o e me envie o conteúdo.
-- "Pausar agora" fecha o painel para mostrar a pausa e o reabre ao terminar. Com o painel fechado o app
-  continua em segundo plano: abra o app de novo para voltar a ele.
+- O painel é uma janela separada e **fica aberta durante a pausa** (a tela cheia aparece por cima).
+  Com o painel fechado o app continua em segundo plano: abra o app de novo para voltar a ele.
+- **Não interromper tela cheia** usa a API do Windows `SHQueryUserNotificationState` (estados "ocupado",
+  "jogo/D3D em tela cheia" e "modo apresentação"). Depende do que o Windows informa e **não foi testado
+  em Windows real**; se não detectar, a pausa abre normalmente. "Pausar agora" sempre abre.
+- **Matéria e estudo:** o tempo de estudo gravado é o do ciclo desde o último reinício da contagem
+  (suspensões não contam). Bancos criados por versões antigas ganham as colunas novas sozinhos.
+- **Foco do teclado no Windows:** uma janela aberta por outro processo pode não receber o teclado
+  (regra do sistema). O app libera o foco no clique/duplo clique e tenta trazer a janela à frente; se o
+  Esc não responder, clique na janela uma vez.
 - Hibernação/suspensão do PC pode estender o ciclo em curso pelo tempo em que ficou suspenso.
 
 ## Estrutura
 
 | Arquivo | Função |
 |---|---|
-| `main.py` | ponto de entrada, laço do ciclo, comandos e instância única |
+| `main.py` | ponto de entrada, argumentos e instância única |
+| `ciclo.py` | laço do app em segundo plano (estudo/pausa, eventos, janelas filhas, atualização) |
+| `ipc.py` | comunicação local (socket com token) entre o app e as janelas |
+| `janelas.py` | entrada dos processos filhos (`--janela`, `--tarefa`) |
+| `registro.py` | registro de erros leve (substitui `logging`) |
 | `config.py` | leitura, validação e gravação do `config.json` |
-| `painel.py` | painel de controle (janela principal) e configurações |
+| `painel.py` | painel de controle e configurações (processo próprio) |
 | `overlay.py` | tela cheia da pausa (multi-monitor) |
 | `gerar_icone.py` / `icone.ico` | ícone do app e do instalador |
 | `notificacoes.py` | toast nativo e som curto |
 | `historico.py` | gravação e consulta no SQLite |
-| `estatisticas.py` | tela de resumo (hoje e 7 dias) |
+| `estatisticas.py` | tela de resumo (hoje, meta, 7 dias, por matéria) |
 | `tema.py` | paleta, fontes e desenhos neon reutilizáveis (extra) |
 | `sistema.py` | pasta do app, PowerShell, DPI e monitores (extra) |
 | `inicializacao.py` | atalho na pasta Inicializar (extra) |
-| `atualizador.py` / `versao.py` | verificação, download e instalação de atualizações (extra) |
+| `atualizador.py` / `versao.py` | rede da atualização (roda em processo filho) e versão (extra) |
 | `textos.py` | sugestões e mensagens (extra) |

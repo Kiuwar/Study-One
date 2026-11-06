@@ -1,6 +1,6 @@
 """Leitura e gravação do config.json (criado com valores padrão se faltar)."""
 import json
-import logging
+import registro
 import os
 
 import sistema
@@ -16,6 +16,10 @@ PADRAO = {
     "verificar_atualizacoes": True,   # consulta o GitHub ao iniciar e a cada 24 h
     "ciclos_pausa_longa": 0,          # a cada N ciclos a pausa é longa (0 = desligado)
     "minutos_pausa_longa": 20,
+    "nao_interromper_tela_cheia": True,   # adia a pausa se houver apresentação/jogo em tela cheia
+    "meta_diaria_pausas": 0,              # 0 = sem meta
+    "materias": [],                       # ex.: ["Direito Civil", "Penal"]
+    "materia_atual": "",
 }
 MODOS = ("tela_cheia", "notificacao")
 CORES = ("ciano", "violeta", "verde", "magenta")
@@ -39,8 +43,14 @@ def validar(dados: dict) -> dict:
         valor = dados[chave]
         if chave in ("minutos_estudo", "minutos_pausa", "adiar_minutos", "minutos_pausa_longa"):
             ok = _numero_valido(valor)
-        elif chave == "ciclos_pausa_longa":
-            ok = isinstance(valor, int) and not isinstance(valor, bool) and 0 <= valor <= 24
+        elif chave in ("ciclos_pausa_longa", "meta_diaria_pausas"):
+            ok = isinstance(valor, int) and not isinstance(valor, bool) and 0 <= valor <= (
+                24 if chave == "ciclos_pausa_longa" else 50)
+        elif chave == "materias":
+            ok = (isinstance(valor, list) and len(valor) <= 12 and
+                  all(isinstance(m, str) and m.strip() and len(m) <= 40 for m in valor))
+        elif chave == "materia_atual":
+            ok = isinstance(valor, str) and len(valor) <= 40
         elif chave == "modo_aviso":
             ok = valor in MODOS
         elif chave == "cor_destaque":
@@ -50,7 +60,7 @@ def validar(dados: dict) -> dict:
         if ok:
             cfg[chave] = valor
         else:
-            logging.warning("config.json: valor inválido em %r (%r); usando %r",
+            registro.aviso("config.json: valor inválido em %r (%r); usando %r",
                             chave, valor, padrao)
     return cfg
 
@@ -75,7 +85,7 @@ def carregar(caminho: str = None, fallback: dict = None) -> dict:
         try:
             gravar(dict(PADRAO), caminho)
         except OSError:
-            logging.exception("Não foi possível criar %s", caminho)
+            registro.excecao("Não foi possível criar %s", caminho)
         return dict(PADRAO)
     try:
         with open(caminho, "r", encoding="utf-8-sig") as f:
@@ -83,6 +93,6 @@ def carregar(caminho: str = None, fallback: dict = None) -> dict:
         if not isinstance(dados, dict):
             raise ValueError("o JSON precisa ser um objeto { ... }")
     except (OSError, ValueError) as erro:
-        logging.warning("config.json ilegível (%s); mantendo a configuração anterior", erro)
+        registro.aviso("config.json ilegível (%s); mantendo a configuração anterior", erro)
         return dict(fallback or PADRAO)
     return validar(dados)

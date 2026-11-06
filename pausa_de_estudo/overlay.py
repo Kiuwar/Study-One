@@ -54,6 +54,7 @@ class TelaPausa:
         self.root.deiconify()
         self.root.lift()
         self.root.focus_force()
+        sistema.trazer_para_frente(self.root)
         self.root.after(300, self.root.focus_force)   # garante o foco para o Esc
         if self.sondar:
             self._vigia = self.root.after(1000, self._vigiar)
