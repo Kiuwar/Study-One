@@ -1,5 +1,5 @@
 """Atalho na pasta Inicializar do Windows (início automático)."""
-import logging
+import registro
 import os
 import sys
 
@@ -44,7 +44,7 @@ def remover() -> bool:
     except FileNotFoundError:
         return True
     except OSError:
-        logging.exception("Não foi possível remover o atalho de inicialização")
+        registro.excecao("Não foi possível remover o atalho de inicialização")
         return False
 
 
@@ -54,6 +54,6 @@ def sincronizar(ativo: bool) -> None:
         return
     if ativo and not existe():
         if not criar():
-            logging.warning("Falha ao criar o atalho de inicialização")
+            registro.aviso("Falha ao criar o atalho de inicialização")
     elif not ativo and existe():
         remover()

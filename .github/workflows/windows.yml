@@ -42,23 +42,47 @@ jobs:
           pip install pyinstaller==6.11.1
           pyinstaller --noconsole --onedir --noconfirm --name PausaDeEstudo --icon icone.ico main.py
 
-      - name: Teste de fumaça do .exe (abre o painel, 2ª abertura, encerra)
+      - name: Memória do app em segundo plano (meta da v1.3.0 — abaixo de 40 MB)
         shell: pwsh
         run: |
           $exe = "dist\PausaDeEstudo\PausaDeEstudo.exe"
-          Start-Process $exe                         # duplo clique: abre o painel
+          Remove-Item "dist\PausaDeEstudo\config.json" -Force -ErrorAction SilentlyContinue
+          Start-Process $exe -ArgumentList "--silencioso"      # só o daemon, sem janela
+          Start-Sleep -Seconds 8
+          $d = @(Get-Process PausaDeEstudo)
+          if ($d.Count -ne 1) { throw "Esperava 1 processo (o app em segundo plano), achei $($d.Count)" }
+          $ws = [math]::Round($d[0].WorkingSet64 / 1MB, 1)
+          $pv = [math]::Round($d[0].PrivateMemorySize64 / 1MB, 1)
+          "App em segundo plano: conjunto de trabalho = $ws MB | memória privada (commit) = $pv MB"
+          Start-Process $exe -ArgumentList "--painel"          # abre o painel como processo separado
           Start-Sleep -Seconds 6
-          $p = Get-Process PausaDeEstudo -ErrorAction SilentlyContinue
-          if (-not $p) { throw "O app nao ficou rodando"; }
-          "Janela do painel: '" + ($p | Select-Object -First 1).MainWindowTitle + "'"
+          $todos = @(Get-Process PausaDeEstudo)
+          "Processos com o painel aberto: $($todos.Count)"
+          foreach ($x in $todos) { "  PID $($x.Id): " + [math]::Round($x.WorkingSet64 / 1MB, 1) + " MB" }
+          if ($todos.Count -ne 2) { throw "Esperava 2 processos (app + painel)" }
+          & $exe --sair
+          Start-Sleep -Seconds 4
+          if (Get-Process PausaDeEstudo -ErrorAction SilentlyContinue) { throw "--sair deixou processos (app ou janela)" }
+          if ($ws -gt 40) { throw "O app em segundo plano usa $ws MB (meta: 40 MB)" }
+          Remove-Item "dist\PausaDeEstudo\config.json" -Force -ErrorAction SilentlyContinue
+
+      - name: Teste de fumaça do .exe (duplo clique, 2ª abertura, encerrar)
+        shell: pwsh
+        run: |
+          $exe = "dist\PausaDeEstudo\PausaDeEstudo.exe"
+          Start-Process $exe                         # duplo clique: app + painel
+          Start-Sleep -Seconds 7
+          $p = @(Get-Process PausaDeEstudo -ErrorAction SilentlyContinue)
+          if ($p.Count -ne 2) { throw "Esperava app + painel (2 processos), achei $($p.Count)" }
+          "Janela(s): " + (($p | ForEach-Object { "'" + $_.MainWindowTitle + "'" }) -join ", ")
           if (-not (Test-Path "dist\PausaDeEstudo\config.json")) { throw "config.json nao foi criado" }
           $log = "dist\PausaDeEstudo\erros.log"
           if ((Test-Path $log) -and ((Get-Item $log).Length -gt 0)) { Get-Content $log; throw "erros.log registrou erros" }
           Start-Process $exe -Wait                   # 2ª abertura: so repassa o comando e sai
-          if (@(Get-Process PausaDeEstudo).Count -ne 1) { throw "Abriu uma segunda instancia" }
+          if (@(Get-Process PausaDeEstudo).Count -ne 2) { throw "A 2a abertura criou outro processo" }
           & $exe --sair
           Start-Sleep -Seconds 4
-          if (Get-Process PausaDeEstudo -ErrorAction SilentlyContinue) { throw "--sair nao encerrou o app" }
+          if (Get-Process PausaDeEstudo -ErrorAction SilentlyContinue) { throw "--sair nao encerrou tudo" }
           Remove-Item "dist\PausaDeEstudo\config.json" -Force -ErrorAction SilentlyContinue
 
       - name: Teste da tela de pausa no .exe (abre a tela cheia, fecha com --sair)
@@ -68,7 +92,8 @@ jobs:
           $pasta = "dist\PausaDeEstudo"
           Remove-Item "$pasta\historico.db", "$pasta\erros.log" -Force -ErrorAction SilentlyContinue
           Start-Process $exe -ArgumentList "--agora"     # dispara a pausa em tela cheia agora
-          Start-Sleep -Seconds 7
+          Start-Sleep -Seconds 8
+          "Processos (app + tela de pausa): " + @(Get-Process PausaDeEstudo).Count
           Add-Type -AssemblyName System.Windows.Forms, System.Drawing
           $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
           $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height

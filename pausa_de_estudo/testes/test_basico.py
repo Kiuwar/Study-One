@@ -13,7 +13,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 import historico
 import atualizador
-import main
+import ciclo
+import ipc
+import sistema
+import versao
 
 
 class TesteConfig(unittest.TestCase):
@@ -68,95 +71,214 @@ class TesteHistorico(unittest.TestCase):
                 historico.registrar(1, 1, "outra", caminho=db)
 
 
+def _json_em(caminho, dados):
+    with open(caminho, "w", encoding="utf-8") as f:
+        json.dump(dados, f)
+
+
 class TesteCiclo(unittest.TestCase):
+    def setUp(self):
+        self.f = queue.Queue()
+        self.c = ciclo.Ciclo(self.f, ocupado_fn=lambda: False)
+        self.c.registrar = lambda *a, **k: None          # sem tocar no banco real
+        self._voltar = ciclo.notificacoes.voltar_a_estudar
+        self._avisar = ciclo.notificacoes.avisar
+        ciclo.notificacoes.voltar_a_estudar = lambda *a, **k: None
+        self.avisos = []
+        ciclo.notificacoes.avisar = lambda t, m, som=True: self.avisos.append(t)
+
+    def tearDown(self):
+        ciclo.notificacoes.voltar_a_estudar = self._voltar
+        ciclo.notificacoes.avisar = self._avisar
+
     def test_esperar_respeita_tempo_e_comandos(self):
-        f = queue.Queue()
-        c = main.Ciclo(f)
         t = time.monotonic()
-        self.assertEqual(c.esperar(0.2), "tempo")
+        self.assertEqual(self.c.esperar(0.2), "tempo")
         self.assertGreaterEqual(time.monotonic() - t, 0.19)
-        f.put("sair")
-        self.assertEqual(c.esperar(5), "sair")
-        f.put("agora")
-        self.assertEqual(c.esperar(5), "agora")
+        self.f.put("sair")
+        self.assertEqual(self.c.esperar(5), "sair")
+        self.f.put("agora")
+        self.assertEqual(self.c.esperar(5), "agora")
 
     def test_adiar_registra_e_reagenda(self):
-        gravados, ciclo = [], main.Ciclo(queue.Queue())
-        ciclo.cfg.update(modo_aviso="tela_cheia", adiar_minutos=0.001, minutos_pausa=1)
+        gravados = []
+        self.c.cfg.update(modo_aviso="tela_cheia", adiar_minutos=0.001, minutos_pausa=1,
+                          nao_interromper_tela_cheia=False)
         respostas = iter([("adiada", 0, False), ("feita", 60, False)])
-        ciclo.aviso_tela_cheia = lambda p, s: next(respostas)
-        ciclo.registrar = lambda p, r, a: gravados.append((p, r, a))
-        main.notificacoes.voltar_a_estudar = lambda *a, **k: None
-        self.assertIsNone(ciclo.pausa())
-        self.assertEqual([g[2] for g in gravados], ["adiada", "feita"])
+        self.c.aviso_tela_cheia = lambda p, s: next(respostas)
+        self.c.registrar = lambda p, r, a, estudo_s=0: gravados.append((a, estudo_s))
+        self.c._feitas = (date.today(), 0)
+        self.assertIsNone(self.c.pausa(estudo_s=300))
+        self.assertEqual(gravados, [("adiada", 300), ("feita", 0)])   # estudo contado uma vez só
 
+    def test_pausa_longa_usa_a_duracao_longa(self):
+        self.c.cfg.update(modo_aviso="tela_cheia", minutos_pausa=10, minutos_pausa_longa=20,
+                          nao_interromper_tela_cheia=False)
+        vistos = []
+        self.c.aviso_tela_cheia = lambda p, s: (vistos.append((p, self.c.longa)), ("pulada", 0, False))[1]
+        self.c.pausa(longa=True)
+        self.c.pausa(longa=False)
+        self.assertEqual(vistos, [(1200, True), (600, False)])
 
-class TesteInstancia(unittest.TestCase):
-    def test_comando_chega_na_instancia_em_execucao(self):
+    def test_estado_e_comandos_pelo_ipc_logico(self):
+        self.c.esperar(0.05, "pausa")
+        r = self.c.tratar("estado", {})
+        self.assertTrue(r["ok"])
+        self.assertIn("EM PAUSA", r["rotulo"])
+        for chave in ("restante", "total", "suspenso", "foco", "versao", "materia", "meta", "feitas",
+                      "atualizacao"):
+            self.assertIn(chave, r)
+        self.assertTrue(self.c.tratar("materia", {"nome": "Penal"})["ok"])
+        self.assertEqual(self.c.tratar("estado", {})["materia"], "Penal")
+        self.assertFalse(self.c.tratar("inexistente", {})["ok"])
+        self.c.tratar("painel", {})
+        self.assertEqual(self.f.get_nowait(), "painel")
+
+    def test_suspender_congela_e_retomar_continua(self):
         import threading
-        main.arquivo_porta = lambda: os.path.join(tempfile.gettempdir(), "teste_pausa.porta")
-        self.assertFalse(main.enviar_comando("painel"))            # nada rodando
-        srv, fila = main.abrir_servidor(), queue.Queue()
-        threading.Thread(target=main.escutar, args=(srv, fila), daemon=True).start()
-        self.assertTrue(main.enviar_comando("painel"))
-        self.assertEqual(fila.get(timeout=2), "painel")
-        self.assertTrue(main.enviar_comando("ping"))               # ping não gera comando
-        self.assertTrue(fila.empty())
-        srv.close()
+        resultado, t0 = [], time.monotonic()
+        th = threading.Thread(target=lambda: resultado.append(self.c.esperar(0.6)))
+        th.start()
+        time.sleep(0.15)
+        self.assertTrue(self.c.tratar("suspender", {})["suspenso"])    # ~0,45 s restantes
+        time.sleep(0.8)                                                # passa do prazo original
+        self.assertTrue(th.is_alive())                                 # contagem suspensa
+        self.assertIn("SUSPENSA", self.c.estado_info()[0])
+        self.assertFalse(self.c.tratar("suspender", {})["suspenso"])   # retoma: acorda o laço
+        th.join(3)
+        self.assertEqual(resultado, ["tempo"])
+        self.assertGreaterEqual(time.monotonic() - t0, 0.15 + 0.8 + 0.35)
 
-    def test_sondar_nao_bloqueia_e_repassa_sair(self):
-        f = queue.Queue()
-        c = main.Ciclo(f)
-        self.assertIsNone(c.sondar())
-        f.put("sair")
-        self.assertTrue(c.sondar_para_fechar())
-        self.assertEqual(f.get_nowait(), "sair")       # devolvido ao laço principal
+    def test_reiniciar_contagem_volta_ao_inicio(self):
+        self.c.esperar(0.05)
+        self.c.duracao, self.c.limite = 100.0, time.monotonic() + 10
+        self.c.tratar("reiniciar", {})
+        self.assertGreater(self.c.estado_info()[1], 99)
+        self.c.alternar_suspensao()
+        self.c.restante_suspenso = 5
+        self.c.reiniciar_contagem()
+        self.assertEqual(self.c.estado_info()[1], 100.0)
 
-    def test_estado_info_para_o_painel(self):
-        c = main.Ciclo(queue.Queue())
-        c.esperar(0.05, "pausa")
-        rotulo, restante, total = c.estado_info()
-        self.assertIn("EM PAUSA", rotulo)
-        self.assertEqual(restante, 0.0)
+    def test_nao_interrompe_tela_cheia_e_tenta_de_novo(self):
+        ocupado = iter([True, True, False])
+        self.c.ocupado_fn = lambda: next(ocupado)
+        ciclo.ESPERA_OCUPADO = 0.05
+        self.c.cfg.update(modo_aviso="tela_cheia", nao_interromper_tela_cheia=True)
+        chamadas = []
+        self.c.aviso_tela_cheia = lambda p, s: (chamadas.append(time.monotonic()), ("pulada", 0, False))[1]
+        self.assertIsNone(self.c.pausa())
+        self.assertEqual(len(chamadas), 1)                  # só abre depois de liberar
+        self.assertEqual(self.avisos.count("Pausa adiada"), 1)   # avisou uma única vez
+
+    def test_pausar_agora_ignora_a_checagem_de_tela_cheia(self):
+        self.c.ocupado_fn = lambda: True
+        self.c.cfg.update(modo_aviso="tela_cheia", nao_interromper_tela_cheia=True)
+        self.c.aviso_tela_cheia = lambda p, s: ("pulada", 0, False)
+        self.assertIsNone(self.c.pausa(forcar=True))        # não trava esperando
+
+    def test_meta_diaria_avisa_uma_vez(self):
+        self.c.cfg.update(meta_diaria_pausas=2)
+        self.c._feitas = (date.today(), 0)
+        self.c.contar_feita()
+        self.assertNotIn("Meta do dia atingida", self.avisos)
+        self.c.contar_feita()
+        self.c.contar_feita()
+        self.assertEqual(self.avisos.count("Meta do dia atingida"), 1)
+
+    def test_tela_cheia_como_processo_filho(self):
+        class Proc:
+            terminou = False
+
+            def poll(self):
+                return None
+
+            def terminate(self):
+                self.terminou = True
+
+        def abrir(nome, extras=None):
+            saida = extras[extras.index("--saida") + 1]
+            _json_em(saida, {"acao": "adiada", "real": 0})
+            self.f.put("fim:pausa")
+            return Proc()
+        self.c.abrir_janela = abrir
+        self.assertEqual(self.c.aviso_tela_cheia(60, "x"), ("adiada", 0, False))
+
+    def test_sair_durante_a_tela_cheia_encerra_o_filho(self):
+        proc = type("P", (), {"terminou": False, "poll": lambda s: None,
+                              "terminate": lambda s: setattr(s, "terminou", True)})()
+        self.c.abrir_janela = lambda nome, extras=None: proc
+        self.f.put("sair")
+        self.assertEqual(self.c.aviso_tela_cheia(60, "x"), ("pulada", 0, True))
+        self.assertTrue(proc.terminou)
+
+    def test_filho_sem_resultado_cai_para_notificacao(self):
+        proc = type("P", (), {"poll": lambda s: None})()
+        self.c.abrir_janela = lambda nome, extras=None: (self.f.put("fim:pausa"), proc)[1]
+        self.c.aviso_notificacao = lambda p, s: ("feita", p, False)
+        self.assertEqual(self.c.aviso_tela_cheia(60, "x"), ("feita", 60, False))
+
+    def test_resultado_da_atualizacao_vem_do_processo_filho(self):
+        a = self.c.atualizacao
+        with tempfile.TemporaryDirectory() as d:
+            for res, fase in (({"ok": True, "nova": True, "info": {"versao": "9.9.9", "pagina": "x"}}, "disponivel"),
+                              ({"ok": True, "nova": False, "info": {"versao": "1.0.0"}}, "atualizado"),
+                              ({"ok": False, "erro": "sem internet"}, "erro")):
+                caminho = os.path.join(d, "r.json")
+                _json_em(caminho, res)
+                a._saidas["verificar"], a._manual = caminho, False
+                a.concluir("verificar")
+                self.assertEqual(a.estado()["fase"], fase)
+        self.assertIn("Atualização disponível", self.avisos)
+
+
+class TesteIPC(unittest.TestCase):
+    def setUp(self):
+        import threading
+        self._antes = ipc.arquivo_porta
+        ipc.arquivo_porta = lambda: os.path.join(tempfile.gettempdir(), "teste_pausa.porta")
+        self.f = queue.Queue()
+        self.c = ciclo.Ciclo(self.f)
+        self.srv, self.token = ipc.abrir_servidor()
+        threading.Thread(target=ipc.servir, args=(self.srv, self.token, self.c.tratar), daemon=True).start()
+
+    def tearDown(self):
+        self.srv.close()
+        ipc.remover_registro()
+        ipc.arquivo_porta = self._antes
+
+    def test_sem_servidor_nao_ha_resposta(self):
+        ipc.remover_registro()
+        self.assertIsNone(ipc.pedir("ping"))
+        self.assertFalse(ipc.enviar("painel"))
+
+    def test_comandos_e_estado(self):
+        self.assertTrue(ipc.enviar("ping"))
+        self.assertTrue(ipc.enviar("painel"))
+        self.assertEqual(self.f.get(timeout=2), "painel")
+        self.assertEqual(ipc.pedir("estado")["versao"], versao.VERSAO)
+
+    def test_token_errado_e_recusado(self):
+        import socket
+        porta = int(open(ipc.arquivo_porta()).read().split()[0])
+        with socket.create_connection(("127.0.0.1", porta), timeout=2) as c:
+            c.sendall(b'{"cmd": "sair", "token": "errado"}\n')
+            resposta = json.loads(c.recv(1024))
+        self.assertFalse(resposta["ok"])
+        self.assertTrue(self.f.empty())
 
 
 class TesteNovidades(unittest.TestCase):
     def test_config_novas_chaves(self):
-        cfg = config.validar({"ciclos_pausa_longa": 4, "minutos_pausa_longa": 15,
-                              "verificar_atualizacoes": False})
-        self.assertEqual((cfg["ciclos_pausa_longa"], cfg["minutos_pausa_longa"],
-                          cfg["verificar_atualizacoes"]), (4, 15, False))
-        ruim = config.validar({"ciclos_pausa_longa": -1, "minutos_pausa_longa": 0})
-        self.assertEqual((ruim["ciclos_pausa_longa"], ruim["minutos_pausa_longa"]), (0, 20))
-
-    def test_pausa_longa_usa_a_duracao_longa(self):
-        c = main.Ciclo(queue.Queue())
-        c.cfg.update(modo_aviso="tela_cheia", minutos_pausa=10, minutos_pausa_longa=20)
-        vistos = []
-        c.aviso_tela_cheia = lambda p, s: (vistos.append((p, c.longa)), ("pulada", 0, False))[1]
-        c.registrar = lambda *a: None
-        c.pausa(longa=True)
-        c.pausa(longa=False)
-        self.assertEqual(vistos, [(1200, True), (600, False)])
-
-    def test_suspender_congela_a_contagem(self):
-        import threading
-        f = queue.Queue()
-        c = main.Ciclo(f)
-        c.abrir_painel = lambda: (c.alternar_suspensao(), None)[1]   # painel simulado
-        resultado = []
-        t0 = time.monotonic()
-        th = threading.Thread(target=lambda: resultado.append(c.esperar(0.6)))
-        th.start()
-        time.sleep(0.15)
-        f.put("painel")                 # suspende com ~0,45 s restantes
-        time.sleep(0.8)                 # passa do prazo original
-        self.assertTrue(th.is_alive())  # continua esperando: a contagem está suspensa
-        self.assertIn("SUSPENSA", c.estado_info()[0])
-        f.put("painel")                 # retoma
-        th.join(3)
-        self.assertEqual(resultado, ["tempo"])
-        self.assertGreaterEqual(time.monotonic() - t0, 0.15 + 0.8 + 0.35)
+        cfg = config.validar({"ciclos_pausa_longa": 4, "minutos_pausa_longa": 15, "meta_diaria_pausas": 6,
+                              "verificar_atualizacoes": False, "materias": ["Civil", "Penal"],
+                              "materia_atual": "Civil", "nao_interromper_tela_cheia": False})
+        self.assertEqual((cfg["ciclos_pausa_longa"], cfg["minutos_pausa_longa"], cfg["meta_diaria_pausas"],
+                          cfg["verificar_atualizacoes"], cfg["materias"], cfg["nao_interromper_tela_cheia"]),
+                         (4, 15, 6, False, ["Civil", "Penal"], False))
+        ruim = config.validar({"ciclos_pausa_longa": -1, "minutos_pausa_longa": 0, "meta_diaria_pausas": 99,
+                               "materias": ["", 3], "materia_atual": 5})
+        self.assertEqual((ruim["ciclos_pausa_longa"], ruim["minutos_pausa_longa"], ruim["meta_diaria_pausas"],
+                          ruim["materias"], ruim["materia_atual"]), (0, 20, 0, [], ""))
 
     def test_sequencia_de_dias(self):
         with tempfile.TemporaryDirectory() as d:
@@ -169,66 +291,38 @@ class TesteNovidades(unittest.TestCase):
             self.assertEqual(historico.sequencia_dias(date(2026, 11, 7), db), 3)   # ontem conta
             self.assertEqual(historico.sequencia_dias(date(2026, 11, 9), db), 0)
 
-
-class TesteCorrecoes(unittest.TestCase):
-    def test_reiniciar_contagem_volta_ao_inicio(self):
-        c = main.Ciclo(queue.Queue())
-        c.esperar(0.05)                              # define duração e limite
-        c.duracao = 100.0
-        c.limite = time.monotonic() + 10
-        c.reiniciar_contagem()
-        self.assertGreater(c.estado_info()[1], 99)
-        c.alternar_suspensao()                       # suspenso: reinicia o valor congelado
-        c.restante_suspenso = 5
-        c.reiniciar_contagem()
-        self.assertEqual(c.estado_info()[1], 100.0)
-
-    def test_painel_volta_depois_da_pausa_iniciada_por_ele(self):
-        f = queue.Queue()
-        c = main.Ciclo(f)
-        c.cfg.update(modo_aviso="tela_cheia")
-        c.abrir_painel = lambda: "agora"             # usuário clicou em "Pausar agora"
-        f.put("painel")
-        self.assertEqual(c.esperar(5), "agora")
-        self.assertTrue(c.reabrir_painel)
-        c.aviso_tela_cheia = lambda p, s: ("feita", p, False)
-        c.registrar = lambda *a: None
-        main.notificacoes.voltar_a_estudar = lambda *a, **k: None
-        c.pausa()
-        self.assertEqual(f.get_nowait(), "painel")   # painel reaberto, sem o app "sumir"
-        self.assertFalse(c.reabrir_painel)
-
-    def test_painel_nao_volta_se_o_app_foi_encerrado(self):
-        f = queue.Queue()
-        c = main.Ciclo(f)
-        c.reabrir_painel = True
-        c.aviso_tela_cheia = lambda p, s: ("pulada", 0, True)
-        c.registrar = lambda *a: None
-        self.assertEqual(c.pausa(), "sair")
-        self.assertTrue(f.empty())
-
-    def test_tela_cheia_fecha_com_sair_e_guarda_painel(self):
-        f = queue.Queue()
-        c = main.Ciclo(f)
-        f.put("painel")
-        f.put("agora")
-        self.assertFalse(c.sondar_overlay())         # painel guardado
-        self.assertFalse(c.sondar_overlay())         # "agora" ignorado
-        self.assertEqual(c._pendentes, {"painel"})
-        f.put("sair")
-        self.assertTrue(c.sondar_overlay())
-        self.assertEqual(f.get_nowait(), "sair")
+    def test_migracao_do_banco_antigo_e_materias(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as d:
+            db = os.path.join(d, "velho.db")
+            conn = sqlite3.connect(db)                       # formato da v1.2 (sem materia/estudo_s)
+            conn.execute("CREATE TABLE avisos (id INTEGER PRIMARY KEY AUTOINCREMENT, data_hora TEXT NOT NULL, "
+                         "duracao_planejada_s INTEGER NOT NULL, duracao_real_s INTEGER NOT NULL, "
+                         "acao TEXT NOT NULL CHECK (acao IN ('feita', 'adiada', 'pulada')))")
+            conn.execute("INSERT INTO avisos VALUES (1, '2026-11-06 09:00:00', 600, 600, 'feita')")
+            conn.commit()
+            conn.close()
+            historico.registrar(600, 600, "feita", datetime(2026, 11, 6, 10), db, materia="Civil", estudo_s=3000)
+            historico.registrar(600, 0, "adiada", datetime(2026, 11, 6, 11), db, materia="Civil")
+            historico.registrar(600, 600, "feita", datetime(2026, 11, 5, 10), db, materia="Penal", estudo_s=1800)
+            self.assertEqual(historico.resumo_dia(date(2026, 11, 6), db)["feita"], 2)   # dado antigo preservado
+            self.assertEqual(historico.resumo_materias(7, date(2026, 11, 6), db),
+                             [("Civil", 1, 3000), ("Penal", 1, 1800), ("Sem matéria", 1, 0)])
+            historico.registrar(1, 1, "pulada", caminho=db)   # chamada antiga (sem matéria) continua válida
 
     def test_exportar_csv(self):
         with tempfile.TemporaryDirectory() as d:
             db, csv_ = os.path.join(d, "h.db"), os.path.join(d, "h.csv")
-            historico.registrar(600, 600, "feita", datetime(2026, 11, 6, 10), db)
+            historico.registrar(600, 600, "feita", datetime(2026, 11, 6, 10), db, materia="Civil", estudo_s=3000)
             historico.registrar(600, 0, "adiada", datetime(2026, 11, 6, 11), db)
             self.assertEqual(historico.exportar_csv(csv_, db), 2)
             with open(csv_, encoding="utf-8-sig") as f:
                 linhas = f.read().splitlines()
-            self.assertEqual(linhas[0], "data_hora;duracao_planejada_s;duracao_real_s;acao")
-            self.assertEqual(linhas[1], "2026-11-06 10:00:00;600;600;feita")
+            self.assertEqual(linhas[0], "data_hora;duracao_planejada_s;duracao_real_s;acao;materia;estudo_s")
+            self.assertEqual(linhas[1], "2026-11-06 10:00:00;600;600;feita;Civil;3000")
+
+    def test_ocupado_tela_cheia_fora_do_windows(self):
+        self.assertFalse(sistema.ocupado_tela_cheia())
 
 
 class TesteAtualizador(unittest.TestCase):

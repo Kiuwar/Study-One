@@ -3,11 +3,16 @@
 O toast é exibido por um PowerShell oculto que roda e termina na hora do aviso;
 nenhuma janela do app é aberta.
 """
-import logging
-from html import escape
+import registro
 
 import sistema
 import textos
+
+
+def escape(texto: str) -> str:
+    """Escapa texto para XML (substitui html.escape, que custa RAM de import)."""
+    return (texto.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace('"', "&quot;"))
 
 # Identificador do Windows PowerShell 5.1: permite exibir toasts sem registrar um app.
 _AUMID = r"{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe"
@@ -20,7 +25,7 @@ def som_curto() -> None:
         import winsound
         winsound.PlaySound("SystemAsterisk", winsound.SND_ALIAS | winsound.SND_ASYNC)
     except Exception:
-        logging.exception("Falha ao tocar o som")
+        registro.excecao("Falha ao tocar o som")
 
 
 def toast(titulo: str, mensagem: str) -> bool:
@@ -42,7 +47,7 @@ def avisar(titulo: str, mensagem: str, som: bool = True) -> None:
     """Mostra o toast; se falhar, ao menos toca o som para o aviso não passar em branco."""
     ok = toast(titulo, mensagem)
     if not ok:
-        logging.warning("Toast não exibido (PowerShell indisponível ou erro)")
+        registro.aviso("Toast não exibido (PowerShell indisponível ou erro)")
     if som or not ok:
         som_curto()
 
