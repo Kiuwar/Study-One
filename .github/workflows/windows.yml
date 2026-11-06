@@ -1,0 +1,75 @@
+name: Windows (.exe e instalador)
+
+on:
+  push:
+    branches: ['claude/**']
+    tags: ['v*']
+    paths: ['pausa_de_estudo/**', '.github/workflows/windows.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: pausa_de_estudo
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Testes da lógica
+        run: python -m unittest discover -s testes
+
+      - name: Gerar o .exe (PyInstaller)
+        run: |
+          pip install pyinstaller==6.11.1
+          pyinstaller --noconsole --onedir --noconfirm --name PausaDeEstudo main.py
+
+      - name: Teste de fumaça do .exe (abre, cria config, encerra)
+        shell: pwsh
+        run: |
+          $exe = "dist\PausaDeEstudo\PausaDeEstudo.exe"
+          Start-Process $exe
+          Start-Sleep -Seconds 5
+          if (-not (Get-Process PausaDeEstudo -ErrorAction SilentlyContinue)) { throw "O app nao ficou rodando" }
+          if (-not (Test-Path "dist\PausaDeEstudo\config.json")) { throw "config.json nao foi criado" }
+          Get-Content "dist\PausaDeEstudo\config.json"
+          & $exe --sair
+          Start-Sleep -Seconds 3
+          if (Get-Process PausaDeEstudo -ErrorAction SilentlyContinue) { throw "--sair nao encerrou o app" }
+          Remove-Item "dist\PausaDeEstudo\config.json" -Force -ErrorAction SilentlyContinue
+
+      - name: Gerar o instalador (Inno Setup)
+        shell: pwsh
+        run: |
+          $versao = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '1.0.0' }
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y --no-progress }
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          & $iscc "/DAppVersion=$versao" instalador.iss
+          if ($LASTEXITCODE -ne 0) { throw "Falha ao gerar o instalador" }
+
+      - name: Versão portátil (.zip)
+        shell: pwsh
+        run: Compress-Archive -Path "dist\PausaDeEstudo\*" -DestinationPath "installer\PausaDeEstudo-portatil.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PausaDeEstudo-Windows
+          path: |
+            pausa_de_estudo/installer/PausaDeEstudo-Setup.exe
+            pausa_de_estudo/installer/PausaDeEstudo-portatil.zip
+
+      - name: Publicar release (só em tags v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            pausa_de_estudo/installer/PausaDeEstudo-Setup.exe
+            pausa_de_estudo/installer/PausaDeEstudo-portatil.zip
