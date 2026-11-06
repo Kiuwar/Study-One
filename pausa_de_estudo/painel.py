@@ -12,13 +12,17 @@ import tkinter as tk
 import config
 import sistema
 import tema
+from versao import VERSAO
 
-LARG, ALT = 760, 800
+LARG, ALT = 760, 860
 
 
-def abrir(estado_fn, cfg, ao_salvar=None, sondar=None):
-    """Retorna "agora", "resumo", "sair", "tempo" (a pausa venceu) ou None (fechou)."""
-    painel = Painel(estado_fn, cfg, ao_salvar, sondar)
+def abrir(ctrl, cfg):
+    """`ctrl` é o Ciclo (estado, comandos, atualizador).
+
+    Retorna "agora", "resumo", "sair", "atualizar", "tempo" (a pausa venceu) ou None (fechou).
+    """
+    painel = Painel(ctrl, cfg)
     try:
         return painel.executar()
     finally:
@@ -109,14 +113,15 @@ class _Interruptor:
 
 
 class Painel:
-    def __init__(self, estado_fn, cfg, ao_salvar, sondar=None):
-        self.estado_fn, self.cfg, self.ao_salvar, self.sondar = estado_fn, dict(cfg), ao_salvar, sondar
+    def __init__(self, ctrl, cfg):
+        self.ctrl, self.cfg = ctrl, dict(cfg)
         self.destaque = tema.cor_destaque(cfg.get("cor_destaque"))
         self.root = None
         self._resultado = None
         self._job = None
         self._widgets, self._botoes = [], []
         self.view = "home"
+        self._assinatura = None
 
     # --------------------------------------------------------------- ciclo
     def executar(self):
@@ -165,7 +170,7 @@ class Painel:
 
     def _tick(self):
         # Comandos externos (--sair, --agora...) chegam enquanto a janela está aberta.
-        cmd = self.sondar() if self.sondar else None
+        cmd = self.ctrl.sondar()
         if cmd in ("sair", "agora"):
             self._fechar(cmd)
             return
@@ -176,13 +181,25 @@ class Painel:
             self.root.deiconify()
             self.root.lift()
             self.root.focus_force()
-        rotulo, restante, total = self.estado_fn()
-        if restante <= 0:                       # a pausa venceu com o painel aberto
+        atualizacao = self.ctrl.atualizador.estado()
+        if atualizacao["fase"] == "pronto":     # download conferido: fecha para instalar
+            self._fechar("atualizar")
+            return
+        rotulo, restante, total = self.ctrl.estado_info()
+        if restante <= 0 and not self.ctrl.suspenso:   # a pausa venceu com o painel aberto
             self._fechar("tempo")
             return
         if self.view == "home":
-            self._atualizar_home(rotulo, restante, total)
-        self._job = self.root.after(1000, self._tick)
+            if self._assinatura_atual() != self._assinatura:
+                self._home()                    # estado da atualização mudou: redesenha
+            else:
+                self._atualizar_home(rotulo, restante, total)
+        ocupado = atualizacao["fase"] in ("verificando", "baixando")
+        self._job = self.root.after(300 if ocupado else 1000, self._tick)
+
+    def _assinatura_atual(self):
+        e = self.ctrl.atualizador.estado()
+        return (e["fase"], e["versao"], e["msg"], self.ctrl.suspenso)
 
     # ------------------------------------------------------------ desenho
     def _f(self, familia, tamanho, estilo=""):
@@ -210,9 +227,10 @@ class Painel:
 
     def _home(self):
         self.view = "home"
+        self._assinatura = self._assinatura_atual()
         self._moldura("◢  PAUSA DE ESTUDO  ◣", "Painel de controle")
         c, k, d, cx = self.canvas, self.k, self.destaque, self.w // 2
-        ry, raio, larg = int(300 * k), int(112 * k), max(4, int(10 * k))
+        ry, raio, larg = int(285 * k), int(108 * k), max(4, int(10 * k))
         box = (cx - raio, ry - raio, cx + raio, ry + raio)
         c.create_oval(*box, outline=tema.LINHA, width=larg)
         halo = raio + larg
@@ -221,21 +239,48 @@ class Painel:
         self._arco = c.create_arc(*box, start=90, extent=-359.9, style="arc", outline=d, width=larg)
         self._tempo = c.create_text(cx, ry, text="--:--", fill=tema.TEXTO,
                                     font=self._f(tema.FONTE_NUMERO, 52))
-        self._rotulo = c.create_text(cx, ry + raio + 44 * k, text="", fill=tema.TEXTO_SUAVE,
+        self._rotulo = c.create_text(cx, ry + raio + 42 * k, text="", fill=tema.TEXTO_SUAVE,
                                      font=self._f(tema.FONTE_MONO, 14, "bold"))
         esq, dir_ = cx - 160 * k, cx + 160 * k
-        self._botao(esq, 575, "Pausar agora", lambda: self._fechar("agora"), d, True)
-        self._botao(dir_, 575, "Resumo", lambda: self._fechar("resumo"), d)
-        self._botao(esq, 645, "Configurações", self._config, tema.VIOLETA)
-        self._botao(dir_, 645, "Encerrar app", lambda: self._fechar("sair"), tema.ROSA)
-        c.create_text(cx, 725 * k, text="Fechar esta janela não encerra o app:\nele continua em segundo plano.",
-                      fill=tema.TEXTO_SUAVE, justify="center", font=self._f(tema.FONTE_TEXTO, 14))
-        self._atualizar_home(*self.estado_fn())
+        suspenso = self.ctrl.suspenso
+        self._botao(esq, 520, "Pausar agora", lambda: self._fechar("agora"), d, True)
+        self._botao(dir_, 520, "Retomar contagem" if suspenso else "Suspender contagem",
+                    self._alternar_suspensao, tema.VIOLETA)
+        self._botao(esq, 590, "Resumo", lambda: self._fechar("resumo"), d)
+        self._botao(dir_, 590, "Configurações", self._config, d)
+        self._botao_atualizacao(esq, 660)
+        self._botao(dir_, 660, "Encerrar app", lambda: self._fechar("sair"), tema.ROSA)
+        e = self.ctrl.atualizador.estado()
+        c.create_text(cx, 725 * k, text=e["msg"], justify="center",
+                      fill=tema.ROSA if e["fase"] == "erro" else self.destaque,
+                      font=self._f(tema.FONTE_TEXTO, 14), width=int(640 * k))
+        c.create_text(cx, 790 * k, justify="center", fill=tema.TEXTO_SUAVE,
+                      text="v%s  ·  Fechar esta janela não encerra o app:\nele continua em segundo plano." % VERSAO,
+                      font=self._f(tema.FONTE_TEXTO, 13))
+        self._atualizar_home(*self.ctrl.estado_info())
+
+    def _botao_atualizacao(self, cx, y):
+        e = self.ctrl.atualizador.estado()
+        fase = e["fase"]
+        if fase == "disponivel":
+            self._botao(cx, y, "Atualizar para v%s" % e["versao"], self.ctrl.atualizador.instalar,
+                        tema.DESTAQUES["verde"], True)
+        elif fase in ("verificando", "baixando"):
+            self._botao(cx, y, "Aguarde...", lambda: None, tema.TEXTO_SUAVE)
+        elif fase == "pronto":
+            self._botao(cx, y, "Instalando...", lambda: None, tema.TEXTO_SUAVE)
+        else:
+            self._botao(cx, y, "Tentar de novo" if fase == "erro" else "Verificar atualização",
+                        lambda: self.ctrl.atualizador.verificar(manual=True), tema.DESTAQUES["verde"])
+
+    def _alternar_suspensao(self):
+        self.ctrl.alternar_suspensao()
+        self._home()
 
     def _atualizar_home(self, rotulo, restante, total):
         c = self.canvas
         c.itemconfigure(self._tempo, text=tema.formatar_tempo(math.ceil(restante)))
-        c.itemconfigure(self._rotulo, text=rotulo)
+        c.itemconfigure(self._rotulo, text=rotulo, fill=tema.VIOLETA if self.ctrl.suspenso else tema.TEXTO_SUAVE)
         c.itemconfigure(self._arco, extent=-359.9 * min(1.0, restante / max(1.0, total)))
 
     # ------------------------------------------------------- configurações
@@ -244,6 +289,7 @@ class Painel:
         self._moldura("◢  CONFIGURAÇÕES  ◣", "Valem a partir do próximo ciclo")
         c, k, d, cx, w = self.canvas, self.k, self.destaque, self.w // 2, self.w
         atual = config.carregar(fallback=self.cfg)
+        self._atual = atual
         self._campos = {}
         for y, chave, rotulo in ((170, "minutos_estudo", "Tempo de estudo (min)"),
                                  (230, "minutos_pausa", "Tempo de pausa (min)"),
@@ -259,29 +305,32 @@ class Painel:
             self._widgets.append(e)
             self._campos[chave] = e
 
-        c.create_text(80 * k, 355 * k, anchor="w", text="Tipo de aviso", fill=tema.TEXTO,
+        c.create_text(80 * k, 350 * k, anchor="w", text="Tipo de aviso", fill=tema.TEXTO,
                       font=self._f(tema.FONTE_TEXTO, 19))
         self._modo = _Segmentos(
-            c, (cx - 150 * k, cx + 150 * k), int(405 * k), int(270 * k), int(48 * k),
+            c, (cx - 150 * k, cx + 150 * k), int(400 * k), int(270 * k), int(48 * k),
             (("tela_cheia", "Tela cheia"), ("notificacao", "Notificação")),
             atual["modo_aviso"], d, self._f(tema.FONTE_TEXTO, 17, "bold"))
-        c.create_text(80 * k, 470 * k, anchor="w", text="Cor de destaque", fill=tema.TEXTO,
+        c.create_text(80 * k, 465 * k, anchor="w", text="Cor de destaque", fill=tema.TEXTO,
                       font=self._f(tema.FONTE_TEXTO, 19))
-        self._cor = _Amostras(c, [cx + i * 80 * k for i in (-120 / 80, -40 / 80, 40 / 80, 120 / 80)],
-                              int(520 * k), int(22 * k), atual["cor_destaque"])
-        for y, texto in ((585, "Som nos avisos"), (640, "Iniciar com o Windows")):
+        self._cor = _Amostras(c, [cx + i * k for i in (-120, -40, 40, 120)],
+                              int(515 * k), int(22 * k), atual["cor_destaque"])
+        linhas = ((580, "Som nos avisos", "som"),
+                  (635, "Iniciar com o Windows", "iniciar_com_windows"),
+                  (690, "Verificar atualizações sozinho", "verificar_atualizacoes"))
+        self._chaves = {}
+        for y, texto, chave in linhas:
             c.create_text(80 * k, y * k, anchor="w", text=texto, fill=tema.TEXTO,
                           font=self._f(tema.FONTE_TEXTO, 19))
-        self._som = _Interruptor(c, int(w - 130 * k), int(585 * k), int(64 * k), atual["som"], d)
-        self._auto = _Interruptor(c, int(w - 130 * k), int(640 * k), int(64 * k),
-                                  atual["iniciar_com_windows"], d)
-        self._msg = c.create_text(cx, 695 * k, text="", fill=tema.ROSA,
+            self._chaves[chave] = _Interruptor(c, int(w - 130 * k), int(y * k), int(64 * k),
+                                               atual[chave], d)
+        self._msg = c.create_text(cx, 745 * k, text="", fill=tema.ROSA,
                                   font=self._f(tema.FONTE_TEXTO, 15))
-        self._botao(cx - 160 * k, 745, "Salvar", self._salvar, d, True)
-        self._botao(cx + 160 * k, 745, "Voltar", self._home, tema.VIOLETA)
+        self._botao(cx - 160 * k, 800, "Salvar", self._salvar, d, True)
+        self._botao(cx + 160 * k, 800, "Voltar", self._home, tema.VIOLETA)
 
     def _salvar(self):
-        novo = {}
+        novo = dict(self._atual)        # preserva chaves sem campo na tela (ex.: pausa longa)
         for chave, entrada in self._campos.items():
             try:
                 valor = float(entrada.get().strip().replace(",", "."))
@@ -292,12 +341,11 @@ class Painel:
                                           text="Use números maiores que 0 nos minutos.")
                 return
             novo[chave] = int(valor) if valor == int(valor) else valor
-        novo.update(modo_aviso=self._modo.valor, cor_destaque=self._cor.valor,
-                    som=self._som.valor, iniciar_com_windows=self._auto.valor)
+        novo.update(modo_aviso=self._modo.valor, cor_destaque=self._cor.valor)
+        novo.update({chave: ch.valor for chave, ch in self._chaves.items()})
         try:
             config.gravar(config.validar(novo))
-            if self.ao_salvar:
-                self.ao_salvar(novo)
+            self.ctrl.aplicar_config(novo)
         except OSError:
             self.canvas.itemconfigure(self._msg, fill=tema.ROSA,
                                       text="Não foi possível gravar o config.json.")

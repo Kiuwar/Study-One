@@ -28,6 +28,7 @@ class JanelaEstatisticas:
         self.sondar = sondar
         self.root = None
         self._job = None
+        self.sequencia = 0
 
     def destruir(self):
         if self.root is not None:
@@ -43,9 +44,10 @@ class JanelaEstatisticas:
     def executar(self):
         try:
             dias = historico.resumo_dias(7)
+            self.sequencia = historico.sequencia_dias()
             erro = None
         except Exception as e:      # banco bloqueado/corrompido: mostra a tela vazia + aviso
-            dias, erro = [], "Não foi possível ler o histórico (%s)" % e
+            dias, self.sequencia, erro = [], 0, "Não foi possível ler o histórico (%s)" % e
         self.root = root = tk.Tk()
         root.withdraw()
         k = tema.escala(root.winfo_screenheight(), 0.8, 1.6)
@@ -101,6 +103,11 @@ class JanelaEstatisticas:
         c.create_text(x1 + 40 * k, y1 + 100 * k, anchor="w",
                       text="Hoje  ·  %s %s" % (DIAS_SEMANA[hoje.weekday()], hoje.strftime("%d/%m/%Y")),
                       fill=tema.TEXTO_SUAVE, font=tema.fonte(tema.FONTE_TEXTO, 16, k))
+
+        c.create_text(x2 - 40 * k, y1 + 100 * k, anchor="e",
+                      text="SEQUÊNCIA  %d dia%s" % (self.sequencia, "" if self.sequencia == 1 else "s"),
+                      fill=d if self.sequencia else tema.TEXTO_SUAVE,
+                      font=tema.fonte(tema.FONTE_MONO, 14, k, "bold"))
 
         # três cartões de métricas do dia
         largura = (x2 - x1 - 80 * k - 2 * 16 * k) / 3

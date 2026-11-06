@@ -15,9 +15,9 @@ import tema
 ALFA = 0.94   # leve transparência: efeito de vidro sobre a área de trabalho
 
 
-def mostrar(planejada_s: int, adiar_min, cor: str, sugestao: str):
+def mostrar(planejada_s: int, adiar_min, cor: str, sugestao: str, longa: bool = False):
     """Exibe a tela e devolve (acao, duracao_real_s): acao em feita/adiada/pulada."""
-    tela = TelaPausa(planejada_s, adiar_min, tema.cor_destaque(cor), sugestao)
+    tela = TelaPausa(planejada_s, adiar_min, tema.cor_destaque(cor), sugestao, longa)
     try:
         return tela.executar()
     finally:
@@ -25,7 +25,8 @@ def mostrar(planejada_s: int, adiar_min, cor: str, sugestao: str):
 
 
 class TelaPausa:
-    def __init__(self, planejada_s, adiar_min, destaque, sugestao):
+    def __init__(self, planejada_s, adiar_min, destaque, sugestao, longa=False):
+        self.longa = longa
         self.planejada = max(1, int(planejada_s))
         self.adiar_min = adiar_min
         self.destaque = destaque
@@ -122,9 +123,9 @@ class TelaPausa:
         tema.colchetes(c, x1 + 18 * k, y1 + 18 * k, x2 - 18 * k, y2 - 18 * k, int(26 * k),
                        self.destaque)
 
-        c.create_text(cx, y1 + 52 * k, text="◢  PAUSA PROGRAMADA  ◣", fill=self.destaque,
+        c.create_text(cx, y1 + 52 * k, text="◢  PAUSA LONGA  ◣" if self.longa else "◢  PAUSA PROGRAMADA  ◣", fill=self.destaque,
                       font=tema.fonte(tema.FONTE_MONO, 16, k, "bold"))
-        c.create_text(cx, y1 + 112 * k, text="Hora de descansar", fill=tema.TEXTO,
+        c.create_text(cx, y1 + 112 * k, text="Você merece uma pausa longa" if self.longa else "Hora de descansar", fill=tema.TEXTO,
                       font=tema.fonte(tema.FONTE_TITULO, 54, k))
         c.create_text(cx, y1 + 162 * k, text="Afaste os olhos da tela e cuide de você.",
                       fill=tema.TEXTO_SUAVE, font=tema.fonte(tema.FONTE_TEXTO, 18, k))

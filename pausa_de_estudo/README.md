@@ -59,6 +59,9 @@ O app **não tem ícone na bandeja**: o controle é pelo painel (abra o app de n
 | `som` | `true` / `false` (som curto nos avisos) |
 | `iniciar_com_windows` | `true` cria o atalho na pasta Inicializar; `false` remove |
 | `cor_destaque` | `"ciano"`, `"violeta"`, `"verde"` ou `"magenta"` |
+| `verificar_atualizacoes` | `true` consulta o GitHub ao iniciar e a cada 24 h (a única conexão de rede do app) |
+| `ciclos_pausa_longa` | a cada N ciclos de estudo a pausa é longa (`0` desliga; só neste arquivo) |
+| `minutos_pausa_longa` | duração da pausa longa, em minutos (padrão 20) |
 
 O arquivo é relido **no início de cada ciclo**, então a mudança vale a partir do próximo
 ciclo, sem reiniciar. Valor inválido volta ao padrão só naquele campo. JSON quebrado mantém
@@ -113,6 +116,26 @@ Em **Actions > Windows (.exe e instalador) > Artifacts** baixe `PausaDeEstudo-Wi
 Para publicar uma *release* com os dois arquivos, crie uma tag: `git tag v1.0.0 && git push origin v1.0.0`.
 O Windows pode exibir o aviso "SmartScreen" porque o `.exe` não é assinado digitalmente:
 clique em "Mais informações" > "Executar assim mesmo".
+
+## Atualizar o app
+
+No painel, **Verificar atualização**. Se houver versão nova, o botão vira **Atualizar para vX**: o
+app baixa o instalador da release do GitHub, **confere o SHA-256** (recusa se não bater ou se o
+checksum faltar), roda o instalador em modo silencioso e volta a abrir sozinho. O app também
+verifica ao iniciar e a cada 24 h e avisa com uma notificação (desligue em Configurações).
+
+- Só baixa de `github.com/Kiuwar/New/releases/download/`.
+- **Requer que o repositório seja público**: com repositório privado o GitHub responde 404 para
+  quem não está logado e o painel mostra "Nenhuma versão pública encontrada".
+- Na versão portátil (zip) o botão apenas abre a página de download.
+- O instalador não é assinado digitalmente; o SHA-256 garante a integridade do arquivo baixado,
+  não a identidade de quem publicou.
+
+### Para publicar uma versão nova
+1. Aumente `VERSAO` em `versao.py` e descreva a mudança em `CHANGELOG.md` (seção `## X.Y.Z`).
+2. Faça merge na `main` e crie a tag igual: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+3. O workflow compila, testa e publica a release com `PausaDeEstudo-Setup.exe`, o `.sha256` e o
+   `.zip` (o CI recusa se a tag e `versao.py` divergirem).
 
 ## Gerar o .exe manualmente (opcional)
 
@@ -189,4 +212,5 @@ Cobrem config, histórico, espera/comandos e o reagendamento do "Adiar".
 | `tema.py` | paleta, fontes e desenhos neon reutilizáveis (extra) |
 | `sistema.py` | pasta do app, PowerShell, DPI e monitores (extra) |
 | `inicializacao.py` | atalho na pasta Inicializar (extra) |
+| `atualizador.py` / `versao.py` | verificação, download e instalação de atualizações (extra) |
 | `textos.py` | sugestões e mensagens (extra) |
