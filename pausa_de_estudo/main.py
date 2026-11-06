@@ -87,6 +87,8 @@ class Ciclo:
         self.estado, self.limite, self.duracao = "estudo", time.monotonic(), 1.0
         self.suspenso, self.restante_suspenso = False, 0.0
         self.contador, self.longa = 0, False
+        self.reabrir_painel = False        # painel estava aberto quando a pausa começou
+        self._pendentes = set()            # comandos recebidos com a tela cheia aberta
         self.atualizador = atualizador.Gerenciador(self._avisar_atualizacao)
 
     def executar(self):
@@ -126,6 +128,8 @@ class Ciclo:
                 self.abrir_estatisticas()
             elif cmd == "painel":
                 acao = self.abrir_painel()
+                if acao in ("agora", "tempo"):      # a pausa vai abrir por cima: volta ao painel depois
+                    self.reabrir_painel = True
                 if acao in ("sair", "agora"):
                     return acao
                 if acao == "resumo":
@@ -152,6 +156,13 @@ class Ciclo:
             self.restante_suspenso, self.suspenso = max(0.0, self.limite - agora), True
         return self.suspenso
 
+    def reiniciar_contagem(self):
+        """Volta a contagem atual ao início (estudo, pausa ou adiamento)."""
+        if self.suspenso:
+            self.restante_suspenso = self.duracao
+        else:
+            self.limite = time.monotonic() + self.duracao
+
     def sondar(self):
         """Próximo comando pendente, sem bloquear (usado pelas janelas abertas)."""
         try:
@@ -165,6 +176,16 @@ class Ciclo:
         if cmd in ("sair", "agora"):
             self.fila.put(cmd)
             return True
+        return False
+
+    def sondar_overlay(self) -> bool:
+        """Para a tela cheia: fecha com --sair; guarda painel/resumo para depois; ignora o resto."""
+        cmd = self.sondar()
+        if cmd == "sair":
+            self.fila.put(cmd)
+            return True
+        if cmd in ("painel", "estatisticas"):
+            self._pendentes.add(cmd)
         return False
 
     def aplicar_config(self, novo: dict):
@@ -199,6 +220,13 @@ class Ciclo:
     # -------------------------------------------------------------- pausa
     def pausa(self, longa: bool = False):
         """Executa o aviso (com adiamentos). Retorna "sair" se o app foi encerrado."""
+        resultado = self._pausa(longa)
+        if resultado != "sair" and self.reabrir_painel:
+            self.reabrir_painel = False
+            self.fila.put("painel")        # o painel volta e mostra a nova contagem de estudo
+        return resultado
+
+    def _pausa(self, longa: bool):
         self.longa = longa
         minutos = self.cfg["minutos_pausa_longa" if longa else "minutos_pausa"]
         planejada = int(round(minutos * 60))
@@ -225,8 +253,14 @@ class Ciclo:
             import overlay
             if self.cfg["som"]:
                 notificacoes.som_curto()
-            acao, real = overlay.mostrar(planejada, self.cfg["adiar_minutos"],
-                                         self.cfg["cor_destaque"], sugestao, self.longa)
+            try:
+                acao, real = overlay.mostrar(planejada, self.cfg["adiar_minutos"],
+                                             self.cfg["cor_destaque"], sugestao, self.longa,
+                                             self.sondar_overlay)
+            finally:
+                for cmd in self._pendentes:       # entrega o que chegou durante a tela cheia
+                    self.fila.put(cmd)
+                self._pendentes.clear()
             return acao, real, False
         except Exception:
             logging.exception("Falha na tela cheia; usando notificação")
@@ -280,6 +314,8 @@ def main(argv=None) -> int:
     logging.basicConfig(level=logging.WARNING, handlers=[logging.FileHandler(
         os.path.join(sistema.pasta_app(), "erros.log"), encoding="utf-8", delay=True)],
         format="%(asctime)s %(levelname)s %(message)s")
+
+    sistema.instalar_diagnostico(os.path.join(sistema.pasta_app(), "erros.log"))
 
     cmd = ("sair" if args.sair else "estatisticas" if args.estatisticas
            else "agora" if args.agora else "painel" if args.painel else None)

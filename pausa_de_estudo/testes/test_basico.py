@@ -170,6 +170,67 @@ class TesteNovidades(unittest.TestCase):
             self.assertEqual(historico.sequencia_dias(date(2026, 11, 9), db), 0)
 
 
+class TesteCorrecoes(unittest.TestCase):
+    def test_reiniciar_contagem_volta_ao_inicio(self):
+        c = main.Ciclo(queue.Queue())
+        c.esperar(0.05)                              # define duração e limite
+        c.duracao = 100.0
+        c.limite = time.monotonic() + 10
+        c.reiniciar_contagem()
+        self.assertGreater(c.estado_info()[1], 99)
+        c.alternar_suspensao()                       # suspenso: reinicia o valor congelado
+        c.restante_suspenso = 5
+        c.reiniciar_contagem()
+        self.assertEqual(c.estado_info()[1], 100.0)
+
+    def test_painel_volta_depois_da_pausa_iniciada_por_ele(self):
+        f = queue.Queue()
+        c = main.Ciclo(f)
+        c.cfg.update(modo_aviso="tela_cheia")
+        c.abrir_painel = lambda: "agora"             # usuário clicou em "Pausar agora"
+        f.put("painel")
+        self.assertEqual(c.esperar(5), "agora")
+        self.assertTrue(c.reabrir_painel)
+        c.aviso_tela_cheia = lambda p, s: ("feita", p, False)
+        c.registrar = lambda *a: None
+        main.notificacoes.voltar_a_estudar = lambda *a, **k: None
+        c.pausa()
+        self.assertEqual(f.get_nowait(), "painel")   # painel reaberto, sem o app "sumir"
+        self.assertFalse(c.reabrir_painel)
+
+    def test_painel_nao_volta_se_o_app_foi_encerrado(self):
+        f = queue.Queue()
+        c = main.Ciclo(f)
+        c.reabrir_painel = True
+        c.aviso_tela_cheia = lambda p, s: ("pulada", 0, True)
+        c.registrar = lambda *a: None
+        self.assertEqual(c.pausa(), "sair")
+        self.assertTrue(f.empty())
+
+    def test_tela_cheia_fecha_com_sair_e_guarda_painel(self):
+        f = queue.Queue()
+        c = main.Ciclo(f)
+        f.put("painel")
+        f.put("agora")
+        self.assertFalse(c.sondar_overlay())         # painel guardado
+        self.assertFalse(c.sondar_overlay())         # "agora" ignorado
+        self.assertEqual(c._pendentes, {"painel"})
+        f.put("sair")
+        self.assertTrue(c.sondar_overlay())
+        self.assertEqual(f.get_nowait(), "sair")
+
+    def test_exportar_csv(self):
+        with tempfile.TemporaryDirectory() as d:
+            db, csv_ = os.path.join(d, "h.db"), os.path.join(d, "h.csv")
+            historico.registrar(600, 600, "feita", datetime(2026, 11, 6, 10), db)
+            historico.registrar(600, 0, "adiada", datetime(2026, 11, 6, 11), db)
+            self.assertEqual(historico.exportar_csv(csv_, db), 2)
+            with open(csv_, encoding="utf-8-sig") as f:
+                linhas = f.read().splitlines()
+            self.assertEqual(linhas[0], "data_hora;duracao_planejada_s;duracao_real_s;acao")
+            self.assertEqual(linhas[1], "2026-11-06 10:00:00;600;600;feita")
+
+
 class TesteAtualizador(unittest.TestCase):
     CONTEUDO = b"MZ-instalador-falso" * 1000
 
@@ -212,11 +273,11 @@ class TesteAtualizador(unittest.TestCase):
         self.srv = http.server.HTTPServer(("127.0.0.1", 0), H)
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
         self.api = "http://127.0.0.1:%d/api" % self.srv.server_port
-        self._prefixo = atualizador.PREFIXO_DOWNLOAD
-        atualizador.PREFIXO_DOWNLOAD = "http://127.0.0.1:%d/dl/" % self.srv.server_port
+        self._prefixos = atualizador.PREFIXOS_DOWNLOAD
+        atualizador.PREFIXOS_DOWNLOAD = ("http://127.0.0.1:%d/dl/" % self.srv.server_port,)
 
     def tearDown(self):
-        atualizador.PREFIXO_DOWNLOAD = self._prefixo
+        atualizador.PREFIXOS_DOWNLOAD = self._prefixos
         self.srv.shutdown()
         self.srv.server_close()
 
@@ -246,6 +307,12 @@ class TesteAtualizador(unittest.TestCase):
             atualizador.baixar(dict(info, url="http://evil.example/Setup.exe"))
         with self.assertRaises(atualizador.ErroAtualizacao):
             atualizador.baixar(dict(info, sha256=None, url_sha=None))
+
+    def test_aceita_o_nome_novo_e_o_antigo_do_repositorio(self):
+        for repo, ok in (("Kiuwar/Study-One", True), ("Kiuwar/New", True), ("Outro/New", False),
+                         ("Kiuwar/Study-One.evil", False)):
+            url = "https://github.com/%s/releases/download/v1/PausaDeEstudo-Setup.exe" % repo
+            self.assertEqual(url.startswith(self._prefixos), ok, repo)
 
     def test_sem_servidor_vira_erro_amigavel(self):
         self.srv.shutdown()

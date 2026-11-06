@@ -20,9 +20,11 @@ import webbrowser
 import sistema
 from versao import VERSAO
 
-REPO = "Kiuwar/New"
-API = "https://api.github.com/repos/%s/releases/latest" % REPO
-PREFIXO_DOWNLOAD = "https://github.com/%s/releases/download/" % REPO   # só baixa daqui
+# O repositório foi renomeado (Kiuwar/New -> Kiuwar/Study-One). O GitHub redireciona o nome antigo,
+# mas os links de download vêm com o nome novo: aceitamos os dois, e só eles.
+REPOS = ("Kiuwar/Study-One", "Kiuwar/New")
+API = "https://api.github.com/repos/%s/releases/latest" % REPOS[0]
+PREFIXOS_DOWNLOAD = tuple("https://github.com/%s/releases/download/" % r for r in REPOS)
 NOME_INSTALADOR = "PausaDeEstudo-Setup.exe"
 INTERVALO_VERIFICACAO = 24 * 3600
 
@@ -78,7 +80,7 @@ def consultar(api: str = None, timeout: float = 10) -> dict:
 def _sha_esperado(info: dict, timeout: float) -> str:
     if info.get("sha256"):
         return info["sha256"].strip().lower()
-    if info.get("url_sha") and info["url_sha"].startswith(PREFIXO_DOWNLOAD):
+    if info.get("url_sha") and info["url_sha"].startswith(PREFIXOS_DOWNLOAD):
         try:
             with _abrir(info["url_sha"], timeout) as resp:
                 token = resp.read(512).decode("ascii", "ignore").split()[0].lower()
@@ -91,7 +93,7 @@ def _sha_esperado(info: dict, timeout: float) -> str:
 
 def baixar(info: dict, timeout: float = 30) -> str:
     """Baixa o instalador, confere o SHA-256 e devolve o caminho. Levanta ErroAtualizacao."""
-    if not info["url"].startswith(PREFIXO_DOWNLOAD):
+    if not info["url"].startswith(PREFIXOS_DOWNLOAD):
         raise ErroAtualizacao("Endereço de download fora do repositório oficial.")
     esperado = _sha_esperado(info, timeout)
     pasta = tempfile.mkdtemp(prefix="PausaDeEstudo-")

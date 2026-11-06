@@ -122,3 +122,33 @@ def barra_escura(janela) -> None:
                 hwnd, atributo, ctypes.byref(ctypes.c_int(1)), 4)
     except (AttributeError, OSError):
         pass
+
+
+_log_falha = None   # mantém aberto o arquivo do faulthandler
+
+
+def instalar_diagnostico(caminho_log: str) -> None:
+    """Registra em erros.log também falhas fatais (travamento do Python/Tk) e erros em threads.
+
+    Sem console (pythonw/.exe) esses erros sumiriam sem deixar rastro.
+    """
+    import faulthandler
+    import logging
+    import threading
+    global _log_falha
+    try:
+        _log_falha = open(caminho_log, "a", encoding="utf-8")
+        faulthandler.enable(file=_log_falha, all_threads=True)
+    except OSError:
+        pass
+    sys.excepthook = lambda t, v, tb: logging.critical("Erro não tratado", exc_info=(t, v, tb))
+    threading.excepthook = lambda a: logging.error(
+        "Erro em thread", exc_info=(a.exc_type, a.exc_value, a.exc_traceback))
+
+
+def proteger_tk() -> None:
+    """Erros dentro de callbacks do Tk vão para o erros.log (sem console eles se perdiam)."""
+    import logging
+    import tkinter
+    tkinter.Tk.report_callback_exception = lambda self, exc, val, tb: logging.error(
+        "Erro em callback do Tk", exc_info=(exc, val, tb))

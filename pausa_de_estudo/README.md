@@ -21,7 +21,7 @@ python main.py
 
 `python main.py` mantém um console aberto; para rodar sem console use `pythonw main.py`.
 Ao abrir, o app mostra o **painel de controle** (contagem até a próxima pausa, "Pausar
-agora", resumo, configurações e encerrar). Fechar o painel **não** encerra o app: ele segue
+agora", reiniciar ou suspender a contagem, resumo, configurações, atualização e encerrar). Fechar o painel **não** encerra o app: ele segue
 em segundo plano. Abrir o app de novo (duplo clique no atalho) traz o painel de volta.
 Na primeira execução ele cria o `config.json` ao lado do `main.py` (50 min de estudo, 10 min
 de pausa); tudo isso também pode ser mudado pelo painel, em **Configurações**.
@@ -87,7 +87,7 @@ de voltar a estudar.
 
 `historico.db` (SQLite, ao lado do app) guarda: data e hora, duração planejada, duração
 real (segundos) e ação (`feita`, `adiada`, `pulada`). A tela de resumo mostra o total do
-dia e um gráfico dos últimos 7 dias. A conexão é aberta só ao gravar ou ler e fechada em
+dia, a sequência de dias e um gráfico dos últimos 7 dias, com botão **Exportar CSV** (`historico.csv`). A conexão é aberta só ao gravar ou ler e fechada em
 seguida; nada fica em memória.
 
 ## Início automático com o Windows
@@ -124,7 +124,7 @@ app baixa o instalador da release do GitHub, **confere o SHA-256** (recusa se n�
 checksum faltar), roda o instalador em modo silencioso e volta a abrir sozinho. O app também
 verifica ao iniciar e a cada 24 h e avisa com uma notificação (desligue em Configurações).
 
-- Só baixa de `github.com/Kiuwar/New/releases/download/`.
+- Só baixa de `github.com/Kiuwar/Study-One/releases/download/` (e o nome antigo `Kiuwar/New`).
 - **Requer que o repositório seja público**: com repositório privado o GitHub responde 404 para
   quem não está logado e o painel mostra "Nenhuma versão pública encontrada".
 - Na versão portátil (zip) o botão apenas abre a página de download.
@@ -197,6 +197,9 @@ Cobrem config, histórico, espera/comandos e o reagendamento do "Adiar".
 - Comunicação entre instâncias: mutex do Windows + porta local livre escolhida na hora
   (registrada em `%TEMP%\PausaDeEstudo.porta`), sem porta fixa que possa estar bloqueada.
 - Se o app não conseguir iniciar, ele mostra uma mensagem de erro e grava o motivo em `erros.log`.
+  O mesmo arquivo recebe falhas fatais e erros de janela; se o app fechar sozinho, abra-o e me envie o conteúdo.
+- "Pausar agora" fecha o painel para mostrar a pausa e o reabre ao terminar. Com o painel fechado o app
+  continua em segundo plano: abra o app de novo para voltar a ele.
 - Hibernação/suspensão do PC pode estender o ciclo em curso pelo tempo em que ficou suspenso.
 
 ## Estrutura

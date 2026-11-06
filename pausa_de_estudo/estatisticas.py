@@ -8,6 +8,7 @@ import tkinter as tk
 from datetime import date
 
 import historico
+import sistema
 import tema
 
 DIAS_SEMANA = ("seg", "ter", "qua", "qui", "sex", "sáb", "dom")
@@ -42,6 +43,7 @@ class JanelaEstatisticas:
         gc.collect()
 
     def executar(self):
+        sistema.proteger_tk()
         try:
             dias = historico.resumo_dias(7)
             self.sequencia = historico.sequencia_dias()
@@ -159,10 +161,27 @@ class JanelaEstatisticas:
                            % (tot["total"], tot["feita"], tot["adiada"], tot["pulada"],
                               round(tot["segundos_descanso"] / 60)),
                       fill=tema.TEXTO_SUAVE, font=tema.fonte(tema.FONTE_TEXTO, 14, k))
-        c.create_text(x1 + 40 * k, y2 - 34 * k, anchor="w",
-                      text=erro or "Arraste pelo topo  ·  Esc ou ✕ para fechar",
-                      fill=tema.ROSA if erro else tema.TEXTO_SUAVE,
-                      font=tema.fonte(tema.FONTE_MONO, 12, k))
+        self._rodape = c.create_text(x1 + 40 * k, y2 - 34 * k, anchor="w",
+                                     text=erro or "Arraste pelo topo  ·  Esc ou ✕ para fechar",
+                                     fill=tema.ROSA if erro else tema.TEXTO_SUAVE,
+                                     font=tema.fonte(tema.FONTE_MONO, 12, k))
+        tema.BotaoNeon(c, int(x2 - 150 * k), int(y2 - 60 * k), int(190 * k), int(40 * k),
+                       "Exportar CSV", self._exportar, d,
+                       fonte_botao=tema.fonte(tema.FONTE_TEXTO, 14, k, "bold"))
+
+    def _exportar(self):
+        import os
+        import subprocess
+        destino = os.path.join(sistema.pasta_app(), "historico.csv")
+        try:
+            n = historico.exportar_csv(destino)
+            self.canvas.itemconfigure(self._rodape, fill=self.destaque,
+                                      text="%d registro(s) exportados para historico.csv" % n)
+            if sistema.e_windows():
+                subprocess.Popen(["explorer", "/select,", destino])
+        except Exception as e:
+            self.canvas.itemconfigure(self._rodape, fill=tema.ROSA,
+                                      text="Falha ao exportar: %s" % e)
 
     # ---------------------------------------------------------- arrastar
     def _arrastar_inicio(self, e):

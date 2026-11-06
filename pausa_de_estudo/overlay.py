@@ -15,9 +15,9 @@ import tema
 ALFA = 0.94   # leve transparência: efeito de vidro sobre a área de trabalho
 
 
-def mostrar(planejada_s: int, adiar_min, cor: str, sugestao: str, longa: bool = False):
+def mostrar(planejada_s: int, adiar_min, cor: str, sugestao: str, longa: bool = False, sondar=None):
     """Exibe a tela e devolve (acao, duracao_real_s): acao em feita/adiada/pulada."""
-    tela = TelaPausa(planejada_s, adiar_min, tema.cor_destaque(cor), sugestao, longa)
+    tela = TelaPausa(planejada_s, adiar_min, tema.cor_destaque(cor), sugestao, longa, sondar)
     try:
         return tela.executar()
     finally:
@@ -25,8 +25,10 @@ def mostrar(planejada_s: int, adiar_min, cor: str, sugestao: str, longa: bool = 
 
 
 class TelaPausa:
-    def __init__(self, planejada_s, adiar_min, destaque, sugestao, longa=False):
+    def __init__(self, planejada_s, adiar_min, destaque, sugestao, longa=False, sondar=None):
         self.longa = longa
+        self.sondar = sondar          # True = um comando externo (--sair) pede para fechar
+        self._vigia = None
         self.planejada = max(1, int(planejada_s))
         self.adiar_min = adiar_min
         self.destaque = destaque
@@ -40,6 +42,7 @@ class TelaPausa:
 
     # ---------------------------------------------------------------- ciclo
     def executar(self):
+        sistema.proteger_tk()
         self.root = tk.Tk()
         self.root.withdraw()
         monitores = sistema.listar_monitores() or [
@@ -52,6 +55,8 @@ class TelaPausa:
         self.root.lift()
         self.root.focus_force()
         self.root.after(300, self.root.focus_force)   # garante o foco para o Esc
+        if self.sondar:
+            self._vigia = self.root.after(1000, self._vigiar)
         self.root.mainloop()
         return self._resultado or ("pulada", 0)
 
@@ -59,13 +64,20 @@ class TelaPausa:
         """Fecha tudo: não sobra janela nem job agendado."""
         if self.root is not None:
             try:
-                if self._job:
-                    self.root.after_cancel(self._job)
+                for job in (self._job, self._vigia):
+                    if job:
+                        self.root.after_cancel(job)
                 self.root.destroy()
             except tk.TclError:
                 pass
             self.root = None
         gc.collect()
+
+    def _vigiar(self):
+        if self.sondar():
+            self._encerrar("pulada")
+            return
+        self._vigia = self.root.after(1000, self._vigiar)
 
     def _encerrar(self, acao):
         if self._resultado is not None:

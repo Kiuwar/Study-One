@@ -1,6 +1,6 @@
 """Versão do app. Fonte única: o instalador e o atualizador leem este valor.
 
-Ao lançar: aumente o número aqui, descreva no CHANGELOG.md e crie a tag `vX.Y.Z`
-igual a ele (o CI recusa a release se a tag e este número divergirem).
+Ao lançar: aumente o número aqui, descreva no CHANGELOG.md e faça o merge na `main`:
+o workflow publica a release `vX.Y.Z` (e recusa se uma tag enviada à mão divergir deste número).
 """
-VERSAO = "1.1.0"
+VERSAO = "1.2.0"
