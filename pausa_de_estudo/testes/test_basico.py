@@ -125,8 +125,8 @@ class TesteCiclo(unittest.TestCase):
         r = self.c.tratar("estado", {})
         self.assertTrue(r["ok"])
         self.assertIn("EM PAUSA", r["rotulo"])
-        for chave in ("restante", "total", "suspenso", "foco", "versao", "materia", "meta", "feitas",
-                      "atualizacao"):
+        for chave in ("restante", "total", "suspenso", "nunca_iniciado", "foco", "versao", "materia",
+                      "meta", "feitas", "atualizacao"):
             self.assertIn(chave, r)
         self.assertTrue(self.c.tratar("materia", {"nome": "Penal"})["ok"])
         self.assertEqual(self.c.tratar("estado", {})["materia"], "Penal")
@@ -148,6 +148,31 @@ class TesteCiclo(unittest.TestCase):
         th.join(3)
         self.assertEqual(resultado, ["tempo"])
         self.assertGreaterEqual(time.monotonic() - t0, 0.15 + 0.8 + 0.35)
+
+    def test_esperar_com_suspenso_inicial_espera_o_usuario(self):
+        import threading
+        resultado = []
+        th = threading.Thread(target=lambda: resultado.append(self.c.esperar(0.2, suspenso_inicial=True)))
+        th.start()
+        time.sleep(0.4)                                     # passa do prazo nominal
+        self.assertTrue(th.is_alive())                       # nasceu suspensa: não contou sozinha
+        self.assertEqual(self.c.estado_info()[1], self.c.duracao)    # nada decorrido
+        self.assertIn("AGUARDANDO INÍCIO", self.c.estado_info()[0])
+        self.c.iniciar_contagem()
+        th.join(3)
+        self.assertEqual(resultado, ["tempo"])
+        self.assertFalse(self.c.nunca_iniciado)
+
+    def test_iniciar_contagem_pelo_tratar(self):
+        import threading
+        resultado = []
+        th = threading.Thread(target=lambda: resultado.append(self.c.esperar(0.2, suspenso_inicial=True)))
+        th.start()
+        time.sleep(0.1)
+        self.assertTrue(self.c.tratar("iniciar", {})["ok"])
+        th.join(3)
+        self.assertEqual(resultado, ["tempo"])
+        self.assertFalse(self.c.tratar("estado", {})["nunca_iniciado"])
 
     def test_reiniciar_contagem_volta_ao_inicio(self):
         self.c.esperar(0.05)

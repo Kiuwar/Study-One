@@ -2,6 +2,11 @@
 __pycache__/
 *.pyc
 
+# Dados locais do Pausa de Estudo (criados ao rodar o app/testes)
+pausa_de_estudo/config.json
+pausa_de_estudo/historico.db
+pausa_de_estudo/erros.log
+
 # Gradle files
 .gradle/
 build/

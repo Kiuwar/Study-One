@@ -133,6 +133,8 @@ class Ciclo:
         self.cfg = dict(config.PADRAO)
         self.estado, self.limite, self.duracao = "estudo", time.monotonic(), 1.0
         self.suspenso, self.restante_suspenso = False, 0.0
+        self.iniciar_suspenso = True           # só a 1ª espera de estudo nasce suspensa
+        self.nunca_iniciado = False             # True enquanto essa 1ª espera não for iniciada
         self.contador, self.longa = 0, False
         self.materia = None                    # None = ainda não lida do config
         self.janelas = {}                      # nome -> processo filho
@@ -152,7 +154,9 @@ class Ciclo:
             inicializacao.sincronizar(self.cfg["iniciar_com_windows"])
             if self.cfg["verificar_atualizacoes"]:
                 self.atualizacao.verificar_se_preciso()
-            motivo = self.esperar(self.cfg["minutos_estudo"] * 60)
+            motivo = self.esperar(self.cfg["minutos_estudo"] * 60,
+                                  suspenso_inicial=self.iniciar_suspenso)
+            self.iniciar_suspenso = False
             if motivo == "sair":
                 return
             with self.lock:
@@ -163,12 +167,15 @@ class Ciclo:
                           estudo_s=estudo_s) == "sair":
                 return
 
-    def esperar(self, segundos: float, estado: str = "estudo") -> str:
+    def esperar(self, segundos: float, estado: str = "estudo", suspenso_inicial: bool = False) -> str:
         """Dorme até o fim do tempo. Retorna "tempo", "agora" ou "sair"."""
         with self.lock:
             self.estado, self.duracao = estado, max(1.0, segundos)
             self.limite = time.monotonic() + segundos
-            self.suspenso = False
+            self.suspenso = suspenso_inicial
+            self.restante_suspenso = self.duracao if suspenso_inicial else 0.0
+            if suspenso_inicial:
+                self.nunca_iniciado = True
         while True:
             with self.lock:
                 suspenso, restante = self.suspenso, self.limite - time.monotonic()
@@ -215,7 +222,11 @@ class Ciclo:
     def estado_info(self):
         """(rótulo, segundos restantes, duração total)."""
         with self.lock:
-            rotulo = "CONTAGEM SUSPENSA" if self.suspenso else ROTULOS[self.estado]
+            if self.suspenso:
+                rotulo = ("AGUARDANDO INÍCIO · CLIQUE EM INICIAR" if self.nunca_iniciado
+                          else "CONTAGEM SUSPENSA")
+            else:
+                rotulo = ROTULOS[self.estado]
             return rotulo, self._restante(), self.duracao
 
     def alternar_suspensao(self) -> bool:
@@ -223,11 +234,19 @@ class Ciclo:
             agora = time.monotonic()
             if self.suspenso:
                 self.limite, self.suspenso = agora + self.restante_suspenso, False
+                self.nunca_iniciado = False
             else:
                 self.restante_suspenso, self.suspenso = max(0.0, self.limite - agora), True
             suspenso = self.suspenso
         self.fila.put("recalcular")
         return suspenso
+
+    def iniciar_contagem(self):
+        """Começa a contagem quando ela nasceu suspensa à espera do usuário."""
+        with self.lock:
+            self.nunca_iniciado = False
+        if self.suspenso:
+            self.alternar_suspensao()
 
     def reiniciar_contagem(self):
         with self.lock:
@@ -257,11 +276,15 @@ class Ciclo:
                 foco, self._foco = self._foco, False
                 suspenso, materia = self.suspenso, self.materia
             return {"ok": True, "rotulo": rotulo, "restante": restante, "total": total,
-                    "suspenso": suspenso, "foco": foco, "versao": VERSAO, "materia": materia or "",
+                    "suspenso": suspenso, "nunca_iniciado": self.nunca_iniciado, "foco": foco,
+                    "versao": VERSAO, "materia": materia or "",
                     "meta": self.cfg["meta_diaria_pausas"], "feitas": self.feitas_hoje(),
                     "atualizacao": self.atualizacao.estado()}
         if cmd == "suspender":
             return {"ok": True, "suspenso": self.alternar_suspensao()}
+        if cmd == "iniciar":
+            self.iniciar_contagem()
+            return {"ok": True}
         if cmd == "reiniciar":
             self.reiniciar_contagem()
             return {"ok": True}

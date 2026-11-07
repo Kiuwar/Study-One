@@ -193,8 +193,8 @@ class Painel:
     def _assinatura_atual(self):
         e = self.e
         a = e["atualizacao"]
-        return (a["fase"], a["versao"], a["msg"], e["suspenso"], e["materia"], e["feitas"],
-                e["meta"], e["rotulo"].split(" · ")[0])
+        return (a["fase"], a["versao"], a["msg"], e["suspenso"], e.get("nunca_iniciado"),
+                e["materia"], e["feitas"], e["meta"], e["rotulo"].split(" · ")[0])
 
     # ------------------------------------------------------------ desenho
     def _f(self, familia, tamanho, estilo=""):
@@ -268,8 +268,14 @@ class Painel:
         self._botao(esq, 550, "Pausar agora", lambda: self._abrir("agora"), d, True)
         self._botao(dir_, 550, "Reiniciar contagem", self._ir(lambda: self._pedir("reiniciar")),
                     tema.VIOLETA)
-        self._botao(esq, 617, "Retomar contagem" if e["suspenso"] else "Suspender contagem",
-                    self._ir(lambda: self._pedir("suspender")), tema.VIOLETA)
+        if e["suspenso"] and e.get("nunca_iniciado"):
+            texto_susp, cmd_susp, destacar = "Iniciar contagem", "iniciar", True
+        elif e["suspenso"]:
+            texto_susp, cmd_susp, destacar = "Retomar contagem", "suspender", False
+        else:
+            texto_susp, cmd_susp, destacar = "Suspender contagem", "suspender", False
+        self._botao(esq, 617, texto_susp, self._ir(lambda: self._pedir(cmd_susp)),
+                    tema.VIOLETA, preenchido=destacar)
         self._botao(dir_, 617, "Resumo", lambda: self._abrir("resumo"), d)
         self._botao(esq, 684, "Configurações", self._ir(self._config), d)
         self._botao_atualizacao(dir_, 684)

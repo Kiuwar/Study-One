@@ -24,11 +24,13 @@ Ao abrir, o app mostra o **painel de controle** (contagem até a próxima pausa,
 agora", reiniciar ou suspender a contagem, resumo, configurações, atualização e encerrar). Fechar o painel **não** encerra o app: ele segue
 em segundo plano. Abrir o app de novo (duplo clique no atalho) traz o painel de volta.
 Na primeira execução ele cria o `config.json` ao lado do `main.py` (50 min de estudo, 10 min
-de pausa); tudo isso também pode ser mudado pelo painel, em **Configurações**.
+de pausa); tudo isso também pode ser mudado pelo painel, em **Configurações**. A primeira
+contagem de estudo de cada execução nasce **suspensa**: o painel mostra "Iniciar contagem"
+e só começa a contar quando você clica nesse botão.
 
 | Comando | O que faz |
 |---|---|
-| `pythonw main.py` | inicia o app, abre o painel e começa a contar o tempo de estudo |
+| `pythonw main.py` | inicia o app e abre o painel; a contagem de estudo só começa quando você clica em "Iniciar contagem" |
 | `pythonw main.py --painel` | abre o painel (ou use o atalho do app) |
 | `pythonw main.py --silencioso` | inicia sem abrir o painel (é o que o início com o Windows usa) |
 | `pythonw main.py --estatisticas` | abre o resumo (ou dá o duplo clique em `Estatisticas.bat`) |
